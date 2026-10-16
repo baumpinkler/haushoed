@@ -245,6 +245,21 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
 .snack button{border:0;background:none;color:#FF8A3D;font-weight:700;padding:6px 8px}
 :root[data-theme="dark"] .snack button{color:#C2410C}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .snack button{color:#C2410C}}
+/* Scanner */
+.searchrow{display:flex;gap:8px;margin-top:12px}
+.searchrow .search{margin-top:0;flex:1;min-width:0}
+.iconbtn{flex:none;width:46px;border:1px solid var(--line);border-radius:var(--radius-m);background:var(--surface);color:var(--ink);display:grid;place-items:center;padding:0}
+.cam{position:relative;margin-top:12px;border-radius:var(--radius-m);overflow:hidden;background:#000;width:100%;aspect-ratio:4/3;max-height:42vh}
+.cam video{width:100%;height:100%;object-fit:cover;display:block}
+.cam-frame{position:absolute;left:7%;right:7%;top:20%;bottom:20%;border:2.5px solid rgba(255,255,255,.85);border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.3);transition:border-color .15s}
+.cam.hit .cam-frame{border-color:#5CC28B}
+.cam-msg{position:absolute;left:12px;right:12px;bottom:12px;color:#fff;font-size:14px;text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.cam-msg:empty{display:none}
+.cam-torch{position:absolute;top:10px;right:10px;border:0;border-radius:999px;background:rgba(0,0,0,.5);color:#fff;padding:6px 12px;font-size:14px;font-weight:600}
+.cam-torch[aria-pressed="true"]{background:#fff;color:#000}
+.scanbox{margin-top:12px;background:var(--paper);border-radius:var(--radius-m);padding:12px}
+.scanbox p{margin:0 0 8px}
+.scanbox .sumline .hint{margin:0;font-variant-numeric:tabular-nums}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -798,13 +813,14 @@ function addStock(a, qty, size){
   a.snoozed = false;
   return a;
 }
-function consumeOne(id, size){
-  const a0 = S.articles[id]; if (!a0 || total(a0) <= 0) return;
+// quiet: keine Meldung, stattdessen {msg, undo} zurückgeben (für den Scanner)
+function consumeOne(id, size, quiet){
+  const a0 = S.articles[id]; if (!a0 || total(a0) <= 0) return null;
   if (size === undefined && sizeGroups(a0).size > 1) { openSizePicker(id); return; }
   const before = clone(a0); const a = clone(a0);
   let cands = sortedLots(a).filter(l => size === undefined || (l.size || 0) === size);
   if (a.mode === 'level') { const opened = cands.filter(l => l.qty < 0.99); if (opened.length) cands = opened; } // angebrochene zuerst
-  const lot = cands[0]; if (!lot) return;
+  const lot = cands[0]; if (!lot) return null;
   const live = a.lots.find(l => l.id === lot.id);
   if (a.mode === 'level') {
     const nxt = LEVELS.find(v => v < live.qty - 0.01);
@@ -819,7 +835,10 @@ function consumeOne(id, size){
   const sz = lot.size && a.base ? ' (' + fmtAmount(lot.size, a.base) + ')' : '';
   let msg = a.mode === 'level' ? (gone ? a.name + sz + ': aufgebraucht' : a.name + sz + ': jetzt ' + LEVEL_NAME(live.qty)) : a.name + ': 1 ' + unitOf(a) + sz + ' verbraucht';
   if (needsBuy(a) && !needsBuy(before)) msg += ', steht jetzt auf der Liste';
-  toast(msg, () => { putArticle(before); if (ev) unlog(ev); });
+  const undo = () => { putArticle(before); if (ev) unlog(ev); };
+  if (quiet) return {msg, undo};
+  toast(msg, undo);
+  return null;
 }
 function openSizePicker(id){
   const root = $('#sheetInner');
@@ -890,7 +909,7 @@ function renderStock(){
   const extra = $('#topExtra');
   if (!extra.dataset.v || extra.dataset.v !== 'stock') {
     extra.dataset.v = 'stock';
-    extra.innerHTML = '<input class="search" id="q" type="search" placeholder="Im Vorrat suchen" autocomplete="off" aria-label="Im Vorrat suchen"><div class="chips" id="filters"></div>';
+    extra.innerHTML = '<div class="searchrow"><input class="search" id="q" type="search" placeholder="Im Vorrat suchen" autocomplete="off" aria-label="Im Vorrat suchen"><button class="iconbtn" data-act="scan" aria-label="Barcode scannen"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10.5 8v8M14 8v8M17 8v8"/></svg></button></div><div class="chips" id="filters"></div>';
     $('#q').value = UI.q;
     $('#q').addEventListener('input', e => { UI.q = e.target.value; render(); });
   }
@@ -901,7 +920,7 @@ function renderStock(){
   $('#filters').innerHTML = all.length ? chips.map(([k, l]) => '<button class="chip' + (k === 'check' ? ' warn' : '') + '" data-filter="' + esc(k) + '" aria-pressed="' + (UI.filter === k) + '">' + esc(l) + '</button>').join('') : '';
 
   if (!all.length) {
-    $('#view').innerHTML = '<div class="emptystate"><h2>Noch nichts im Vorrat</h2><p>Du musst nicht alles auf einmal erfassen. Fang mit dem an, was du gerade in der Hand hast – der Rest kommt mit den nächsten Einkäufen von selbst dazu.</p><button class="btn" data-act="new">Ersten Artikel anlegen</button></div>';
+    $('#view').innerHTML = '<div class="emptystate"><h2>Noch nichts im Vorrat</h2><p>Du musst nicht alles auf einmal erfassen. Fang mit dem an, was du gerade in der Hand hast – der Rest kommt mit den nächsten Einkäufen von selbst dazu.</p><div class="btnrow"><button class="btn" data-act="new">Ersten Artikel anlegen</button><button class="btn ghost" data-act="scan">Barcode scannen</button></div></div>';
     return;
   }
   const q = norm(UI.q);
@@ -1206,9 +1225,9 @@ function bindSettings(root, a, onChange){
   });
 }
 
-function openNew(presetName){
+function openNew(presetName, opts = {}){
   const a = newArticle(presetName || '');
-  let qty = 1, touched = false, lastSig = null, sizeStr = '';
+  let qty = 1, touched = false, lastSig = null, sizeStr = opts.size ? fmtAmount(opts.size.v, opts.size.base) : '';
   const root = $('#sheetInner');
   let nameEl, suggEl, bodyEl;
   const renderBody = force => {
@@ -1218,6 +1237,7 @@ function openNew(presetName){
     lastSig = sig;
     const unitText = () => qtyUnit(qty, existing ? unitOf(existing) : unitOf(a));
     bodyEl.innerHTML =
+      (opts.code ? '<p class="hint" style="margin:6px 0 0">Barcode ' + esc(opts.code) + (opts.codeName ? ' (' + esc(opts.codeName) + ')' : '') + ' wird gemerkt.</p>' : '') +
       (existing ? '<div class="notice">' + esc(existing.name) + ' gibt es schon (' + esc(stockText(existing)) + '). Die Menge wird dazugezählt.</div>' : '') +
       '<div class="field"><span class="lbl">Wie viele?</span><div class="qtyrow"><div class="stepper"><button type="button" id="qMinus" aria-label="weniger">−</button><span id="qv">' + esc(unitText()) + '</span><button type="button" id="qPlus" aria-label="mehr">+</button></div>' +
         '<span class="hint" style="margin:0">à</span><input type="text" id="f-size" class="sizein" autocomplete="off" enterkeyhint="done" placeholder="Größe, z. B. 400 g" aria-label="Packungsgröße" value="' + esc(sizeStr || (existing && existing.packSize ? fmtAmount(existing.packSize, existing.base) : '')) + '"></div>' +
@@ -1247,9 +1267,10 @@ function openNew(presetName){
     const target = existing ? clone(existing) : a;
     const size = readSize(target, bodyEl.querySelector('#f-size').value);
     if (size === false) { toast('Größe nicht verstanden – z. B. 400 g, 1,5 l oder 10 Stk'); bodyEl.querySelector('#f-size').focus(); return; }
-    if (existing) { addStock(target, qty, size); putArticle(target); toast(target.name + ': ' + fmtNum(qty) + ' dazugezählt'); }
-    else { if (bodyEl.querySelector('#f-cat')) readSettings(bodyEl, a); a.name = name; addStock(a, qty, size); putArticle(a); learn(a); toast(a.name + ' angelegt'); }
+    if (existing) { addStock(target, qty, size); if (opts.code) attachCode(target, opts.code, opts.size, opts.codeName); putArticle(target); toast(target.name + ': ' + fmtNum(qty) + ' dazugezählt'); }
+    else { if (bodyEl.querySelector('#f-cat')) readSettings(bodyEl, a); a.name = name; addStock(a, qty, size); if (opts.code) attachCode(a, opts.code, opts.size, opts.codeName); putArticle(a); learn(a); toast(a.name + ' angelegt'); }
     closeSheet();
+    if (opts.after) opts.after();
   };
   const shell = () => {
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><input id="f-name" placeholder="Was ist es?" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" aria-label="Name"><button class="xbtn" id="close" aria-label="Schließen">×</button></div><div class="sugg" id="nameSugg" aria-label="Vorschläge"></div><div id="newBody"></div>';
@@ -1340,7 +1361,7 @@ function openEdit(id){
         '</div><div class="actions"><div class="stepper"><button id="aMinus" aria-label="weniger">−</button><span>' + esc(qtyUnit(addQty, unitOf(a))) + '</span><button id="aPlus" aria-label="mehr">+</button></div>' +
         '<span class="hint" style="margin:0">à</span><input type="text" id="f-addsize" class="sizein" autocomplete="off" enterkeyhint="done" placeholder="Größe" aria-label="Packungsgröße" value="' + esc(addSizeStr != null ? addSizeStr : (a.packSize ? fmtAmount(a.packSize, a.base) : '')) + '"><button class="btn" id="addBtn">Dazu</button></div>' + sizeChips(a) +
       '</div>' +
-      settingsFields(draft) +
+      settingsFields(draft) + codesField(a) +
       '<div class="sheet-foot"><button class="btn danger" id="delBtn">' + (delSure ? 'Wirklich löschen?' : 'Artikel löschen') + '</button><button class="btn ghost" id="toList">Auf die Liste</button></div>';
     root.querySelector('#close').onclick = closeSheet;
     const nameEl = root.querySelector('#f-name');
@@ -1364,6 +1385,12 @@ function openEdit(id){
       addStock(c, addQty, size); putArticle(c); toast(c.name + ': ' + qtyUnit(addQty, unitOf(c)) + (size ? ' à ' + fmtAmount(size, c.base) : '') + ' dazu', () => putArticle(before));
     };
     root.querySelector('#toList').onclick = () => { addToShopById(id); };
+    root.querySelector('#scanCode').onclick = () => openScanner({assignTo: id});
+    root.querySelectorAll('[data-delcode]').forEach(b => b.onclick = () => {
+      const before = clone(S.articles[id]), c = clone(S.articles[id]);
+      c.codes = (c.codes || []).filter(x => x.c !== b.dataset.delcode); putArticle(c);
+      toast('Barcode entfernt', () => putArticle(before));
+    });
     root.querySelector('#delBtn').onclick = () => {
       if (!delSure) { delSure = true; build(); setTimeout(() => { if (delSure) { delSure = false; build(); } }, 4000); return; }
       const before = clone(S.articles[id]);
@@ -1736,6 +1763,306 @@ function openMeal(planId){
   openSheet(build);
 }
 
+/* ============ Barcodes ============
+   Ein Artikel kann mehrere Barcodes haben (a.codes = [{c, size, n}]): die Hafermilch von zwei Marken,
+   die 500-g- und die 1-kg-Packung. size ist die Packungsgröße in der Grundeinheit des Artikels, n der Name laut Datenbank. */
+const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+const VENDOR = {js: 'vendor/barcode-detector-3.2.2.js', wasm: 'vendor/zxing_reader-3.1.3.wasm'};
+// Prüfziffer von EAN-8, EAN-13 und GTIN-14, damit Fehllesungen nicht als Artikel hängen bleiben
+function validCode(c){
+  if (!/^(\d{8}|\d{13}|\d{14})$/.test(c)) return false;
+  const d = c.split('').map(Number), last = d.pop();
+  const s = d.reverse().reduce((t, n, i) => t + n * (i % 2 ? 1 : 3), 0);
+  return (10 - s % 10) % 10 === last;
+}
+// UPC-A (12 Ziffern) wird wie im Handel als EAN-13 mit führender 0 gespeichert
+function normCode(raw, format){
+  let c = String(raw || '').replace(/\D/g, '');
+  if (c.length === 12) c = '0' + c;
+  if (format === 'upc_e') return /^\d{8}$/.test(c) ? c : '';
+  return validCode(c) ? c : '';
+}
+const findByCode = c => Object.values(S.articles).find(a => (a.codes || []).some(x => x.c === c)) || null;
+function attachCode(a, c, size, label){
+  // Ein Barcode gehört immer genau einem Artikel
+  for (const o of Object.values(S.articles)) if (o.id !== a.id && (o.codes || []).some(x => x.c === c)) { const oc = clone(o); oc.codes = oc.codes.filter(x => x.c !== c); putArticle(oc); }
+  let sz = null;
+  if (size && size.v > 0 && size.base && (!a.base || a.base === size.base)) { a.base = size.base; sz = size.v; }
+  a.codes = [...(a.codes || []).filter(x => x.c !== c), {c, size: sz, n: label || null}];
+  return a;
+}
+function codesField(a){
+  const list = a.codes || [];
+  const rows = list.map(x => '<div class="lot"><div class="l">' + esc(x.c) + '<small>' + esc([x.n, x.size && a.base ? fmtAmount(x.size, a.base) : ''].filter(Boolean).join(', ') || 'ohne weitere Angaben') + '</small></div><button class="xbtn" data-delcode="' + esc(x.c) + '" aria-label="Barcode ' + esc(x.c) + ' entfernen">×</button></div>').join('');
+  return '<div class="field"><span class="lbl">Barcodes</span>' + (rows || '<p class="hint" style="margin:0 0 8px">Noch keiner. Mit Barcode erkennt der Scanner diesen Artikel sofort.</p>') +
+    '<button type="button" class="btn ghost" id="scanCode" style="margin-top:6px">Barcode scannen</button></div>';
+}
+
+/* Open Food Facts (Lebensmittel), dazu die Schwester-Datenbanken für Kosmetik und sonstige Produkte.
+   Es geht nur der Barcode hinaus, sonst nichts. */
+async function lookupCode(c){
+  const fields = 'product_name,product_name_de,brands,quantity,product_quantity,product_quantity_unit';
+  const one = async host => {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 7000);
+    try {
+      const r = await fetch('https://world.' + host + '/api/v2/product/' + c + '?fields=' + fields, {signal: ctl.signal});
+      if (!r.ok) return null;
+      const d = await r.json();
+      return d && d.status === 1 && d.product ? d.product : null;
+    } catch(e) { return null; } finally { clearTimeout(t); }
+  };
+  let p = await one('openfoodfacts.org');
+  if (!p) { const [b, o] = await Promise.all([one('openbeautyfacts.org'), one('openproductsfacts.org')]); p = b || o; }
+  if (!p) return null;
+  const name = String(p.product_name_de || p.product_name || '').trim();
+  const brand = String(p.brands || '').split(',')[0].trim();
+  if (!name && !brand) return null;
+  let size = null;
+  const pq = num(p.product_quantity), pu = String(p.product_quantity_unit || '').toLowerCase();
+  if (pq > 0 && MEASURE[pu]) size = {v: pq * MEASURE[pu][1], base: MEASURE[pu][0]};
+  else { const q = parseAmount(String(p.quantity || '').replace(/\s*℮\s*$/, '')); if (q && q.base) size = q; }
+  return {name: name || brand, brand: name && brand && !norm(name).includes(norm(brand)) ? brand : '', size};
+}
+const infoLabel = info => info ? [info.brand, info.name].filter(Boolean).join(' ') : null;
+// Welche vorhandenen Artikel könnten gemeint sein? („Ja! Natürlich Bio-Vollmilch“ → Milch)
+function articleMatches(name, max){
+  const n = norm(name), words = n.split(/[^a-zäöüß0-9]+/), nt = tokens(n), g = builtinGuess(name);
+  const out = [];
+  for (const a of Object.values(S.articles)) {
+    const k = norm(a.name); if (!k) continue;
+    let s = 0;
+    if (words.includes(k) || (k.length >= 4 && n.includes(k))) s = 100 + k.length;
+    else { const kt = tokens(k); const common = nt.filter(t => kt.some(x => x === t || (x.length >= 4 && t.endsWith(x)))); if (common.length) s = 10 + common.join('').length; }
+    if (s && g.cat && a.cat === g.cat) s += 5;
+    if (s) out.push([s, a]);
+  }
+  return out.sort((x, y) => y[0] - x[0]).slice(0, max).map(x => x[1]);
+}
+
+/* Erkennung: eingebauter BarcodeDetector (Chrome auf Android), sonst ZXing als WebAssembly (iPhone, Firefox).
+   Die Bibliothek liegt in docs/vendor und wird erst beim ersten Scannen geladen. */
+const SCAN = {stream: null, detector: null, loading: null};
+function loadScript(src){
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Laden fehlgeschlagen: ' + src)); document.head.appendChild(s); });
+}
+async function getDetector(){
+  if (SCAN.detector) return SCAN.detector;
+  if (!SCAN.loading) SCAN.loading = (async () => {
+    if ('BarcodeDetector' in window) {
+      try { const f = await window.BarcodeDetector.getSupportedFormats(); const use = SCAN_FORMATS.filter(x => f.includes(x)); if (use.includes('ean_13')) return new window.BarcodeDetector({formats: use}); } catch(e) {}
+    }
+    if (!window.BarcodeDetectionAPI) await loadScript(VENDOR.js);
+    const wasm = new URL(VENDOR.wasm, location.href).href;
+    await window.BarcodeDetectionAPI.prepareZXingModule({overrides: {locateFile: (p, pre) => p.endsWith('.wasm') ? wasm : pre + p}, fireImmediately: true});
+    return new window.BarcodeDetectionAPI.BarcodeDetector({formats: SCAN_FORMATS});
+  })();
+  try { SCAN.detector = await SCAN.loading; } catch(e) { SCAN.loading = null; throw e; }
+  return SCAN.detector;
+}
+
+const SCAN_MODES = [['add', 'Einräumen'], ['use', 'Verbraucht'], ['look', 'Nachschauen']];
+const SCAN_HINT = {add: 'Jeder Scan zählt 1 dazu.', use: 'Jeder Scan zieht 1 ab.', look: 'Ein Scan öffnet den Artikel.', assign: 'Scanne den Barcode auf der Packung.'};
+function openScanner(opts = {}){
+  const root = $('#sheetInner');
+  const st = {mode: opts.assignTo ? 'assign' : (UI.scanMode || 'add'), paused: false, panel: null, last: '', lastSeen: 0, torch: false};
+  let video, canvas, ctx, timer = null, starting = false;
+  const alive = () => UI.sheet === shell && root.contains(video);
+  const setMsg = t => { const m = root.querySelector('#camMsg'); if (m) m.textContent = t; };
+  const stop = () => {
+    clearTimeout(timer); timer = null;
+    if (SCAN.stream) { SCAN.stream.getTracks().forEach(t => t.stop()); SCAN.stream = null; }
+    if (video) video.srcObject = null;
+  };
+  const leave = next => { stop(); next(); };
+  const close = () => leave(closeSheet);
+  const resume = () => { st.paused = false; st.panel = null; st.lastSeen = Date.now(); panel(); };
+
+  const start = async () => {
+    if (starting || SCAN.stream) return; starting = true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setMsg('Hier ist kein Kamerazugriff möglich. Tipp den Code unten ein.'); starting = false; return; }
+    setMsg('Kamera startet …');
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}, audio: false});
+      if (!alive()) { stream.getTracks().forEach(t => t.stop()); return; }
+      SCAN.stream = stream; video.srcObject = stream;
+      await video.play().catch(() => {});
+      setMsg('Scanner lädt …');
+      await getDetector();
+      if (!alive()) { stop(); return; }
+      const track = stream.getVideoTracks()[0], caps = track && track.getCapabilities ? track.getCapabilities() : {};
+      const tb = root.querySelector('#torch');
+      if (caps.torch && tb) { tb.hidden = false; tb.onclick = async () => { st.torch = !st.torch; tb.setAttribute('aria-pressed', st.torch); try { await track.applyConstraints({advanced: [{torch: st.torch}]}); } catch(e) {} }; }
+      setMsg('');
+      tick();
+    } catch(e) {
+      console.warn(e); stop();
+      const n = e && e.name;
+      setMsg(n === 'NotAllowedError' || n === 'SecurityError' ? 'Kein Zugriff auf die Kamera. Erlaub ihn in den Browser-Einstellungen oder tipp den Code unten ein.'
+        : n === 'NotFoundError' || n === 'OverconstrainedError' ? 'Keine Kamera gefunden. Tipp den Code unten ein.'
+        : n === 'NotReadableError' ? 'Die Kamera wird gerade von einer anderen App verwendet.'
+        : !navigator.onLine && !SCAN.detector ? 'Für das erste Scannen braucht es einmal Internet.' : 'Die Kamera konnte nicht starten.');
+    } finally { starting = false; }
+  };
+  // Nur den sichtbaren Rahmen auswerten: schneller und es wird nicht der Nachbarartikel erkannt
+  const grab = () => {
+    const vw = video.videoWidth, vh = video.videoHeight, bw = video.clientWidth, bh = video.clientHeight;
+    if (!vw || !vh || !bw || !bh) return false;
+    const k = Math.max(bw / vw, bh / vh), sw = bw / k, sh = bh / k;
+    const x = (vw - sw) / 2 + sw * 0.07, y = (vh - sh) / 2 + sh * 0.2, w = sw * 0.86, h = sh * 0.6;
+    const f = Math.min(1, 1000 / w);
+    canvas.width = Math.round(w * f); canvas.height = Math.round(h * f);
+    ctx.drawImage(video, x, y, w, h, 0, 0, canvas.width, canvas.height);
+    return true;
+  };
+  const tick = async () => {
+    timer = null;
+    if (!alive()) { stop(); return; }
+    if (!st.paused && SCAN.detector && video.readyState >= 2 && grab()) {
+      try {
+        const found = await SCAN.detector.detect(canvas);
+        const hit = found.map(b => normCode(b.rawValue, b.format)).find(Boolean), now = Date.now();
+        // Derselbe Code zählt erst wieder, wenn er kurz aus dem Bild war
+        if (hit && !st.paused) { if (hit !== st.last || now - st.lastSeen > 1500) { st.last = hit; st.lastSeen = now; handle(hit); } else st.lastSeen = now; }
+      } catch(e) {}
+    }
+    if (alive() && SCAN.stream) timer = setTimeout(tick, 120);
+  };
+  const flash = () => {
+    if (navigator.vibrate) navigator.vibrate(40);
+    const cam = root.querySelector('#cam'); if (cam) { cam.classList.add('hit'); setTimeout(() => cam.classList.remove('hit'), 450); }
+  };
+
+  const handle = async c => {
+    flash();
+    if (st.mode === 'assign') { assign(c); return; }
+    const a = findByCode(c);
+    if (a) { act(a.id, c); return; }
+    st.paused = true; st.panel = {kind: 'unknown', code: c, loading: true, q: ''}; panel();
+    const info = await lookupCode(c);
+    if (st.panel && st.panel.code === c) { st.panel.loading = false; st.panel.info = info; st.panel.offline = !info && !navigator.onLine; panel(); }
+  };
+  const act = (id, c) => {
+    const a = S.articles[id]; if (!a) return;
+    const e = (a.codes || []).find(x => x.c === c), size = e && e.size ? e.size : undefined;
+    if (st.mode === 'look') { leave(() => openEdit(id)); return; }
+    if (st.mode === 'use') {
+      if (total(a) <= 0) { st.panel = {kind: 'done', id, code: c, text: 'ist schon leer'}; panel(); return; }
+      let sz = size;
+      if (sz !== undefined && !(a.lots || []).some(l => (l.size || 0) === sz)) sz = undefined;
+      if (sz === undefined && sizeGroups(a).size > 1) { leave(() => consumeOne(id)); return; } // fragt nach der Größe
+      const r = consumeOne(id, sz, true);
+      st.panel = {kind: 'done', id, code: c, text: a.mode === 'level' ? 'etwas verbraucht' : '1 verbraucht', undo: r && r.undo}; panel(); return;
+    }
+    const before = clone(a), n = clone(a);
+    addStock(n, 1, size); putArticle(n);
+    st.panel = {kind: 'done', id, code: c, text: '1 dazu', undo: () => putArticle(before)}; panel();
+  };
+  const assign = async c => {
+    const tgt = S.articles[opts.assignTo]; if (!tgt) { close(); return; }
+    const other = findByCode(c);
+    if (other && other.id === tgt.id) { toast('Diesen Barcode kennt ' + tgt.name + ' schon'); leave(() => openEdit(tgt.id)); return; }
+    st.paused = true;
+    if (other && !(st.panel && st.panel.kind === 'taken' && st.panel.code === c)) { st.panel = {kind: 'taken', code: c, other: other.id}; panel(); return; }
+    st.panel = {kind: 'saving', code: c}; panel();
+    const info = await lookupCode(c);
+    if (!alive()) return;
+    const n = attachCode(clone(S.articles[tgt.id]), c, info && info.size, infoLabel(info));
+    putArticle(n); toast('Barcode bei ' + n.name + ' gemerkt');
+    leave(() => openEdit(tgt.id));
+  };
+  const link = (id, c, info) => {
+    const n = attachCode(clone(S.articles[id]), c, info && info.size, infoLabel(info));
+    putArticle(n); learn(n);
+    st.paused = false; st.lastSeen = Date.now();
+    if (st.mode === 'look') { toast('Barcode bei ' + n.name + ' gemerkt'); leave(() => openEdit(id)); return; }
+    act(id, c);
+  };
+
+  const matchRows = list => list.map(a => '<div class="lot"><div class="l">' + esc(a.name) + '<small>' + esc(stockText(a)) + (a.loc ? ', ' + esc(a.loc) : '') + '</small></div><button type="button" class="btn ghost" data-link="' + a.id + '">Das ist es</button></div>').join('');
+  const findList = p => {
+    const q = norm(p.q);
+    const list = q ? Object.values(S.articles).filter(a => norm(a.name).includes(q)).sort((x, y) => x.name.localeCompare(y.name, 'de')).slice(0, 6)
+                   : p.info ? articleMatches(p.info.name, 4) : [];
+    return list.length ? matchRows(list) : (q ? '<p class="hint" style="margin:6px 0 0">Kein Artikel mit „' + esc(p.q) + '“.</p>' : '');
+  };
+  const panel = () => {
+    const el = root.querySelector('#scanPanel'); if (!el) return;
+    const p = st.panel;
+    if (!p) { el.innerHTML = '<p class="hint">' + esc(SCAN_HINT[st.mode]) + '</p>'; return; }
+    if (p.kind === 'done') {
+      const a = S.articles[p.id]; if (!a) { st.panel = null; panel(); return; }
+      el.innerHTML = '<div class="scanbox"><div class="sumline"><b>' + esc(a.name) + '</b><span class="hint">' + esc(p.text) + '</span></div><p class="hint">Jetzt: ' + esc(stockText(a)) + '</p>' +
+        '<div class="actions">' + (st.mode !== 'use' || total(a) > 0 ? '<button type="button" class="btn ghost" id="sAgain">Noch 1</button>' : '') + (p.undo ? '<button type="button" class="btn quiet" id="sUndo">Rückgängig</button>' : '') + '<button type="button" class="btn quiet" id="sOpen">Öffnen</button></div></div>';
+      const ag = el.querySelector('#sAgain'); if (ag) ag.onclick = () => act(p.id, p.code);
+      const ud = el.querySelector('#sUndo'); if (ud) ud.onclick = () => { p.undo(); st.panel = null; st.lastSeen = Date.now(); panel(); };
+      el.querySelector('#sOpen').onclick = () => leave(() => openEdit(p.id));
+      return;
+    }
+    if (p.kind === 'saving') { el.innerHTML = '<div class="scanbox"><p class="hint">Barcode ' + esc(p.code) + ' wird gemerkt …</p></div>'; return; }
+    if (p.kind === 'taken') {
+      const o = S.articles[p.other], t = S.articles[opts.assignTo];
+      el.innerHTML = '<div class="scanbox"><p>Dieser Barcode gehört schon zu <b>' + esc(o ? o.name : '?') + '</b>.</p><div class="actions"><button type="button" class="btn" id="sMove">Zu ' + esc(t ? t.name : '') + ' verschieben</button><button type="button" class="btn quiet" id="sSkip">Weiter scannen</button></div></div>';
+      el.querySelector('#sMove').onclick = () => assign(p.code);
+      el.querySelector('#sSkip').onclick = resume;
+      return;
+    }
+    // Unbekannter Barcode
+    const head = '<div class="sumline"><b>' + (p.info ? esc(p.info.name) : 'Unbekannter Barcode') + '</b><span class="hint">' + esc(p.code) + '</span></div>';
+    const sub = p.loading ? 'Suche bei Open Food Facts …'
+      : p.info ? [p.info.brand, p.info.size ? fmtAmount(p.info.size.v, p.info.size.base) : ''].filter(Boolean).join(', ') || 'Gefunden bei Open Food Facts'
+      : p.offline ? 'Offline, nachschlagen geht gerade nicht.' : 'In Open Food Facts nicht gefunden.';
+    el.innerHTML = '<div class="scanbox">' + head + '<p class="hint">' + esc(sub) + '</p>' +
+      (p.loading ? '' :
+        '<div class="actions"><button type="button" class="btn" id="sNew">Neu anlegen</button><button type="button" class="btn quiet" id="sSkip">Weiter scannen</button></div>' +
+        (Object.keys(S.articles).length ? '<div class="field" style="margin-top:14px"><label for="sFind">Oder ist es etwas, das du schon hast?</label><input type="text" id="sFind" placeholder="Artikel suchen" autocomplete="off" enterkeyhint="search" value="' + esc(p.q) + '"><div id="sList">' + findList(p) + '</div></div>' : '')) +
+      '</div>';
+    if (p.loading) return;
+    el.querySelector('#sSkip').onclick = resume;
+    el.querySelector('#sNew').onclick = () => leave(() => openNew(p.info ? p.info.name : '', {code: p.code, size: p.info && p.info.size, codeName: infoLabel(p.info), after: () => openScanner()}));
+    const fi = el.querySelector('#sFind'), sl = el.querySelector('#sList');
+    if (fi) {
+      fi.addEventListener('input', () => { p.q = fi.value; sl.innerHTML = findList(p); });
+      sl.addEventListener('click', e => { const b = e.target.closest('[data-link]'); if (b) link(b.dataset.link, p.code, p.info); });
+    }
+  };
+
+  function shell(){
+    const tgt = opts.assignTo && S.articles[opts.assignTo];
+    root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">' + (tgt ? 'Barcode für ' + esc(tgt.name) : 'Scannen') + '</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      (tgt ? '' : '<div class="seg" style="margin-top:4px">' + SCAN_MODES.map(([k, l]) => '<button type="button" data-smode="' + k + '" aria-pressed="' + (st.mode === k) + '">' + l + '</button>').join('') + '</div>') +
+      '<div class="cam" id="cam"><video playsinline muted autoplay></video><div class="cam-frame" aria-hidden="true"></div><div class="cam-msg" id="camMsg"></div><button type="button" class="cam-torch" id="torch" hidden aria-pressed="false">Licht</button></div>' +
+      '<div id="scanPanel"></div>' +
+      '<form class="addbar" id="codeForm" autocomplete="off"><input id="codeIn" inputmode="numeric" placeholder="Code eintippen" aria-label="Barcode eintippen" enterkeyhint="search"><button class="btn ghost" type="submit">Suchen</button></form>';
+    video = root.querySelector('video'); video.muted = true;
+    canvas = document.createElement('canvas'); ctx = canvas.getContext('2d', {willReadFrequently: true});
+    root.querySelector('#close').onclick = close;
+    root.querySelectorAll('[data-smode]').forEach(b => b.onclick = () => {
+      st.mode = UI.scanMode = b.dataset.smode;
+      root.querySelectorAll('[data-smode]').forEach(x => x.setAttribute('aria-pressed', x === b));
+      if (!st.panel || st.panel.kind === 'done') st.panel = null;
+      panel();
+    });
+    root.querySelector('#codeForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const inp = root.querySelector('#codeIn'), raw = inp.value.replace(/\D/g, '');
+      if (!raw) return;
+      const c = normCode(raw, raw.length === 8 && !validCode(raw) ? 'upc_e' : '');
+      if (!c) { toast('Dieser Code stimmt nicht. Tippfehler?'); return; }
+      inp.value = ''; inp.blur(); st.last = c; st.lastSeen = Date.now(); handle(c);
+    });
+    panel();
+    start();
+  }
+  const onVis = () => {
+    if (!alive()) { document.removeEventListener('visibilitychange', onVis); return; }
+    if (document.hidden) stop(); else start();
+  };
+  document.addEventListener('visibilitychange', onVis);
+  openSheet(shell);
+  shell.refresh = () => { if (alive() && st.panel && st.panel.kind === 'done') panel(); };
+}
+
 /* ============ Snackbar ============ */
 let snackTimer;
 function toast(msg, undo){
@@ -1770,6 +2097,7 @@ document.addEventListener('click', e => {
   else if (d.act === 'newrecipe') openRecipe(null);
   else if (d.act === 'new') openNew();
   else if (d.act === 'new-q') openNew(UI.q);
+  else if (d.act === 'scan') openScanner();
   else if (d.toggle || d.qty || d.remove) {
     const entry = shopList().find(x => x.id === (d.toggle || d.qty || d.remove)); if (!entry) return;
     if (d.toggle) { const s = materialize(entry); s.done = !entry.done; putShop(s); }

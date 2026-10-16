@@ -1,6 +1,6 @@
 // Haushöd Service Worker: hält die App offline startbereit.
 // Daten synchronisiert Firestore selbst; die werden hier nie zwischengespeichert.
-const VERSION = 'haushoed-v2';
+const VERSION = 'haushoed-v3';
 // Pfade relativ zum Ordner der App, damit sie auch unter <name>.github.io/haushoed/ läuft
 const BASE = self.registration.scope;
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-64.png'].map(p => new URL(p, BASE).href);
