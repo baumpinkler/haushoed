@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function household(hid) { return get(/databases/$(database)/documents/households/$(hid)).data; }
+    function householdAfter(hid) { return getAfter(/databases/$(database)/documents/households/$(hid)).data; }
+    function isMember(hid) { return signedIn() && request.auth.uid in household(hid).members; }
+
+    match /households/{hid} {
+      // Lesen nur für Mitglieder (so formuliert, dass die Suche „meine Haushalte“ erlaubt ist)
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      // Neuen Haushalt anlegen: nur mit sich selbst als einzigem Mitglied
+      allow create: if signedIn() && request.resource.data.members == [request.auth.uid];
+      // Mitglieder dürfen alles ändern (auch den Code erneuern).
+      // Neue Geräte dürfen sich nur selbst hinzufügen, nur mit dem gültigen Code
+      // und nur ihren eigenen Namen eintragen.
+      allow update: if (signedIn() && request.auth.uid in resource.data.members) || (
+        signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'joinCode', 'names'])
+        && request.resource.data.members.hasAll(resource.data.members)
+        && request.resource.data.members.size() == resource.data.members.size() + 1
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.joinCode == resource.data.inviteCode
+        && request.resource.data.get('names', {}).diff(resource.data.get('names', {})).affectedKeys().hasOnly([request.auth.uid])
+      );
+      allow delete: if false;
+
+      // Vorrat, Einkauf, Rezepte, Plan, Verlauf
+      match /{collection}/{docId} {
+        allow read, write: if isMember(hid);
+      }
+    }
+
+    // Code → Haushalt. Einzelne Codes nachschlagen ja, auflisten nein.
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      // Nur für den eigenen Haushalt und nur, wenn es danach wirklich dessen Code ist.
+      // Bereits vergebene Codes können nicht überschrieben werden (kein update).
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['hid'])
+        && request.auth.uid in householdAfter(request.resource.data.hid).members
+        && householdAfter(request.resource.data.hid).inviteCode == code;
+      allow update: if false;
+      allow delete: if isMember(resource.data.hid);
+    }
+  }
+}
