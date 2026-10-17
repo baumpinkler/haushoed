@@ -95,6 +95,9 @@ main{padding-bottom:150px}
 
 .qbtn{flex:none;width:46px;height:46px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);font-size:24px;line-height:1;display:grid;place-items:center}
 .qbtn:active{background:var(--herb-soft)}
+.qbtn{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation;transition:box-shadow .1s}
+.qbtn.hold{box-shadow:0 0 0 5px var(--herb-soft),0 0 0 7px var(--herb);transition:box-shadow .45s ease-in}
+.qbtn.openable{border-style:dashed}
 .qbtn.add{border-color:var(--herb);color:var(--herb)}
 
 .notice{margin-top:16px;padding:12px 14px;border-radius:var(--radius-m);background:var(--mustard-soft);color:var(--ink);font-size:15px}
@@ -257,11 +260,20 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
 .cam-msg:empty{display:none}
 .cam-torch{position:absolute;top:10px;right:10px;border:0;border-radius:999px;background:rgba(0,0,0,.5);color:#fff;padding:6px 12px;font-size:14px;font-weight:600}
 .cam-torch[aria-pressed="true"]{background:#fff;color:#000}
+.switch{display:flex;align-items:center;gap:10px;margin-top:18px;font-weight:600;cursor:pointer}
+.switch input{appearance:none;-webkit-appearance:none;flex:none;width:44px;height:26px;border-radius:999px;background:var(--line);position:relative;margin:0;transition:background .2s;cursor:pointer}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s}
+.switch input:checked{background:var(--herb)}
+.switch input:checked::after{transform:translateX(18px)}
 .scanbox{margin-top:12px;background:var(--paper);border-radius:var(--radius-m);padding:12px}
 .scanbox p{margin:0 0 8px}
 .scanbox .sumline .hint{margin:0;font-variant-numeric:tabular-nums}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@keyframes in-r{from{opacity:.3;transform:translateX(36px)}to{opacity:1;transform:none}}
+@keyframes in-l{from{opacity:.3;transform:translateX(-36px)}to{opacity:1;transform:none}}
+#view.in-r{animation:in-r .2s ease-out}
+#view.in-l{animation:in-l .2s ease-out}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
@@ -464,7 +476,7 @@ function learnedGuess(name){
   const n = norm(name); if (n.length < 3) return null;
   // Bestehende Artikel zählen auch als gelernt (z. B. alles, was vor dieser Funktion angelegt wurde)
   const L = {};
-  for (const x of Object.values(S.articles)) L[norm(x.name)] = {label: x.name, cat: x.cat, loc: x.loc, mode: x.mode};
+  for (const x of Object.values(S.articles)) L[norm(x.name)] = {label: x.name, cat: x.cat, loc: x.loc, mode: x.mode, openable: !!x.openable, openCheckDays: x.openCheckDays || null, openMaxDays: x.openMaxDays || null};
   Object.assign(L, S.meta.learned || {});
   if (L[n]) return {...L[n], from: L[n].label};
   const nt = tokens(n);
@@ -480,14 +492,15 @@ function learnedGuess(name){
 function guess(name){
   const b = builtinGuess(name), l = learnedGuess(name);
   if (!l) return b;
-  return {cat: l.cat || b.cat, loc: l.loc || b.loc, mode: l.mode || b.mode, unit: l.unit || b.unit, from: l.from};
+  return {cat: l.cat || b.cat, loc: l.loc || b.loc, mode: l.mode || b.mode, unit: l.unit || b.unit, from: l.from, openable: !!l.openable, openCheckDays: l.openCheckDays || null, openMaxDays: l.openMaxDays || null};
 }
 function learn(a){
   const k = norm(a.name); if (!k) return;
   const L = S.meta.learned || (S.meta.learned = {});
   const entry = {label: a.name.trim(), cat: a.cat || '', loc: a.loc || '', mode: a.mode || 'count', unit: a.unit || ''};
+  if (a.openable) Object.assign(entry, {openable: true, openCheckDays: a.openCheckDays || null, openMaxDays: a.openMaxDays || null});
   const prev = L[k];
-  if (prev && prev.cat === entry.cat && prev.loc === entry.loc && prev.mode === entry.mode && prev.unit === entry.unit && prev.label === entry.label) return;
+  if (prev && JSON.stringify(prev) === JSON.stringify(entry)) return;
   L[k] = entry;
   const keys = Object.keys(L); if (keys.length > 1500) delete L[keys[0]];
   saveMeta();
@@ -790,7 +803,11 @@ function stockText(a){
     const c = {}; for (const l of a.lots) { const n = LEVEL_NAME(l.qty); c[n] = (c[n]||0) + 1; }
     const kinds = ['voll','halb','fast leer'].filter(n => c[n]);
     txt = kinds.length === 1 ? qtyUnit(c[kinds[0]], unitOf(a)) + ' ' + kinds[0] : qtyUnit(a.lots.length, unitOf(a)) + ': ' + kinds.map(n => c[n] + ' ' + n).join(', ');
-  } else txt = qtyUnit(t, unitOf(a));
+  } else {
+    txt = qtyUnit(t, unitOf(a));
+    const o = (a.lots || []).filter(l => l.opened).reduce((s, l) => s + l.qty, 0);
+    if (o > 0) txt += o === t ? (t === 1 ? ' offen' : ', alle offen') : ', ' + fmtNum(o) + ' offen';
+  }
   const sizes = sizeGroups(a);
   if (a.mode !== 'level' && hasSizes(a) && sizes.size === 1) return txt + ' à ' + fmtAmount([...sizes.keys()][0], a.base);
   if (hasSizes(a)) return txt + ' (' + (a.mode === 'level' ? '≈ ' : '') + fmtAmount(amount(a), a.base) + ')';
@@ -806,7 +823,7 @@ function addStock(a, qty, size){
   if (size === undefined) size = a.packSize || null;
   if (size) { a.packSize = size; a.sizesUsed = [...new Set([size, ...(a.sizesUsed || [])])].slice(0, 6); }
   if (a.mode !== 'level') {
-    const same = (a.lots||[]).find(l => l.bought === today() && (l.size || null) === (size || null));
+    const same = (a.lots||[]).find(l => l.bought === today() && !l.opened && (l.size || null) === (size || null));
     if (same) { same.qty += qty; a.snoozed = false; return a; }
   }
   a.lots = [...(a.lots||[]), ...makeLots(a, qty, size)];
@@ -814,16 +831,36 @@ function addStock(a, qty, size){
   return a;
 }
 // quiet: keine Meldung, stattdessen {msg, undo} zurückgeben (für den Scanner)
+/* Öffnen: eine Einheit bekommt ein Öffnungsdatum. Prüf- und Ablaufdatum werden dann
+   ab heute neu gerechnet, aber nie später als das ursprüngliche Datum. */
+function applyOpen(a, l){
+  const d = today(); l.opened = d;
+  if (a.openCheckDays) { const c = addDays(d, a.openCheckDays); if (!l.check || c < l.check) l.check = c; }
+  if (a.openMaxDays) { const e = addDays(d, a.openMaxDays); if (!l.expires || e < l.expires) l.expires = e; }
+}
+const isOpen = (a, l) => !!l.opened || (a.mode === 'level' && l.qty < 0.99);
+const canOpen = a => !!a.openable && (a.lots || []).some(l => !isOpen(a, l) && l.qty >= 0.99);
+function openOne(id){
+  const a0 = S.articles[id]; if (!a0) return;
+  const a = clone(a0), before = clone(a0);
+  const lot = sortedLots(a).find(l => !isOpen(a, l) && l.qty >= 0.99); if (!lot) return;
+  let live = a.lots.find(l => l.id === lot.id);
+  if (a.mode !== 'level' && live.qty > 1) { live.qty -= 1; live = {...clone(live), id: newId(), qty: 1}; a.lots.push(live); }
+  applyOpen(a, live); putArticle(a);
+  const until = live.expires ? ', haltbar bis ' + fmtDate(live.expires) : live.check ? ', prüfen ab ' + fmtDate(live.check) : '';
+  toast(a.name + ': 1 geöffnet' + until, () => putArticle(before));
+}
 function consumeOne(id, size, quiet){
   const a0 = S.articles[id]; if (!a0 || total(a0) <= 0) return null;
   if (size === undefined && sizeGroups(a0).size > 1) { openSizePicker(id); return; }
   const before = clone(a0); const a = clone(a0);
   let cands = sortedLots(a).filter(l => size === undefined || (l.size || 0) === size);
-  if (a.mode === 'level') { const opened = cands.filter(l => l.qty < 0.99); if (opened.length) cands = opened; } // angebrochene zuerst
+  { const opened = cands.filter(l => isOpen(a, l)); if (opened.length) cands = opened; } // angebrochene zuerst
   const lot = cands[0]; if (!lot) return null;
   const live = a.lots.find(l => l.id === lot.id);
   if (a.mode === 'level') {
     const nxt = LEVELS.find(v => v < live.qty - 0.01);
+    if (nxt && a.openable && !live.opened) applyOpen(a, live);   // erstes Abfüllen = geöffnet
     if (nxt) live.qty = nxt; else a.lots = a.lots.filter(l => l.id !== live.id);
   } else {
     live.qty -= 1;
@@ -866,7 +903,7 @@ function discard(id, lotId, amount, reason){
 function findByName(name){ const n = norm(name); return Object.values(S.articles).find(a => norm(a.name) === n); }
 function newArticle(name){
   const g = guess(name || '');
-  return {id: newId(), name: name || '', cat: g.cat, loc: g.loc, mode: g.mode, _from: g.from || null, unit: g.unit || (g.mode === 'level' ? 'Pkg' : 'Stk'), min: 0, buy: 1, checkDays: null, maxDays: null, lots: [], snoozed: false, created: Date.now()};
+  return {id: newId(), name: name || '', cat: g.cat, loc: g.loc, mode: g.mode, _from: g.from || null, unit: g.unit || (g.mode === 'level' ? 'Pkg' : 'Stk'), min: 0, buy: 1, checkDays: null, maxDays: null, openable: !!g.openable, openCheckDays: g.openCheckDays || null, openMaxDays: g.openMaxDays || null, lots: [], snoozed: false, created: Date.now()};
 }
 
 /* ============ Darstellung ============ */
@@ -942,7 +979,7 @@ function renderStock(){
       html += '<div class="row' + (t <= 0 ? ' empty' : '') + '">' +
         '<button class="row-main" data-open="' + a.id + '">' + jarHTML(a) +
         '<span style="min-width:0"><div class="name">' + esc(a.name) + '</div><div class="meta">' + parts.join(', ') + '</div></span></button>' +
-        (t > 0 ? '<button class="qbtn" data-use="' + a.id + '" aria-label="' + esc(a.name) + ': eins verbraucht">−</button>'
+        (t > 0 ? '<button class="qbtn' + (a.openable ? ' openable' : '') + '" data-use="' + a.id + '" aria-label="' + esc(a.name) + ': eins verbraucht' + (a.openable ? ', lange drücken: eins öffnen' : '') + '">−</button>'
                : '<button class="qbtn add" data-refill="' + a.id + '" aria-label="' + esc(a.name) + ' wieder auffüllen">+</button>') +
         '</div>';
     }
@@ -1155,14 +1192,26 @@ function replaceAll(next){
 function resetAll(){ replaceAll({articles: {}, shopping: {}, log: {}, recipes: {}, plan: {}, meta: clone(DEFAULT_META)}); toast('Alles gelöscht'); }
 
 /* ============ Artikel-Blatt ============ */
+/* Zurück-Taste: Solange ein Blatt offen ist, liegt ein eigener Eintrag im Browserverlauf.
+   „Zurück“ entfernt ihn und schließt das Blatt, statt die App zu verlassen. */
+const HIST = {open: false, skip: 0};
 function openSheet(build){
+  if (!HIST.open) { history.pushState({sheet: 1}, ''); HIST.open = true; }
   $('#sheetInner').innerHTML = '';
   UI.sheet = build;
   build.refresh = () => { if (UI.sheet === build) build(); };
   build();
   $('#backdrop').classList.add('open'); $('#sheet').classList.add('open');
 }
-function closeSheet(){ UI.sheet = null; $('#backdrop').classList.remove('open'); $('#sheet').classList.remove('open'); }
+function hideSheet(){ UI.sheet = null; $('#backdrop').classList.remove('open'); $('#sheet').classList.remove('open'); }
+function closeSheet(){
+  if (HIST.open) { HIST.open = false; HIST.skip++; history.back(); }
+  hideSheet();
+}
+addEventListener('popstate', () => {
+  if (HIST.skip > 0) { HIST.skip--; return; }   // kam von closeSheet selbst
+  if (HIST.open) { HIST.open = false; hideSheet(); }
+});
 
 function settingsFields(a){
   const catOpts = ['<option value="">Ohne Kategorie</option>', ...S.meta.cats.map(c => '<option' + (c === a.cat ? ' selected' : '') + '>' + esc(c) + '</option>')].join('');
@@ -1180,6 +1229,12 @@ function settingsFields(a){
       '<div class="two"><div class="field"><label for="f-check">Ohne Prüfen ok</label><input type="number" inputmode="numeric" min="0" id="f-check" value="' + (a.checkDays || '') + '" placeholder="Tage"></div>' +
       '<div class="field"><label for="f-max">Höchstens haltbar</label><input type="number" inputmode="numeric" min="0" id="f-max" value="' + (a.maxDays || '') + '" placeholder="Tage"></div></div>' +
       '<div class="hint">Tage ab dem Einkauf. Gilt für neue Einkäufe; leer lassen bei Dingen, die nicht schlecht werden.</div>' +
+      '<label class="switch"><input type="checkbox" id="f-openable"' + (a.openable ? ' checked' : '') + '><span>Öffenbar</span></label>' +
+      '<div class="hint">Für Dinge, die nach dem Öffnen schneller verderben: Milch, Saucen, Säfte. Öffnen geht im Artikel oder in der Vorratsliste: das − lange drücken.</div>' +
+      (a.openable ? '<div class="lbl" style="margin-top:14px;font-size:14px;font-weight:600;color:var(--muted)">Wenn geöffnet</div>' +
+        '<div class="two"><div class="field" style="margin-top:6px"><label for="f-ocheck">Ohne Prüfen ok</label><input type="number" inputmode="numeric" min="0" id="f-ocheck" value="' + (a.openCheckDays || '') + '" placeholder="Tage"></div>' +
+        '<div class="field" style="margin-top:6px"><label for="f-omax">Höchstens haltbar</label><input type="number" inputmode="numeric" min="0" id="f-omax" value="' + (a.openMaxDays || '') + '" placeholder="Tage"></div></div>' +
+        '<div class="hint">Tage ab dem Öffnen. Gilt, wenn es früher ist als das normale Datum.</div>' : '') +
     '</details>';
 }
 const amtUnit = a => a.base === 'g' ? 'kg' : a.base === 'ml' ? 'l' : 'Stk';
@@ -1197,6 +1252,8 @@ function readSettings(root, a){
   const cd = num(v('#f-check').value), md = num(v('#f-max').value);
   a.checkDays = cd > 0 ? Math.round(cd) : null;
   a.maxDays = md > 0 ? Math.round(md) : null;
+  if (v('#f-openable')) a.openable = v('#f-openable').checked;
+  if (v('#f-ocheck')) { const oc = num(v('#f-ocheck').value), om = num(v('#f-omax').value); a.openCheckDays = oc > 0 ? Math.round(oc) : null; a.openMaxDays = om > 0 ? Math.round(om) : null; }
   a._openDetails = v('#f-details').open;
   return a;
 }
@@ -1204,7 +1261,8 @@ function bindSettings(root, a, onChange){
   root.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => { a.loc = a.loc === b.dataset.loc ? '' : b.dataset.loc; onChange(true); });
   root.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { readSettings(root, a); a.mode = b.dataset.mode; a._openDetails = true; onChange(true); });
   root.querySelectorAll('[data-minin]').forEach(b => b.onclick = () => { a._minIn = b.dataset.minin; readSettings(root, a); a._openDetails = true; onChange(true); });
-  root.querySelectorAll('#f-cat,#f-unit,#f-min,#f-buy,#f-check,#f-max').forEach(el => el.addEventListener('change', () => { readSettings(root, a); onChange(false); }));
+  root.querySelectorAll('#f-cat,#f-unit,#f-min,#f-buy,#f-check,#f-max,#f-ocheck,#f-omax').forEach(el => el.addEventListener('change', () => { readSettings(root, a); onChange(false); }));
+  root.querySelector('#f-openable').addEventListener('change', () => { readSettings(root, a); a._openDetails = true; onChange(true); });
   root.querySelector('#f-details').addEventListener('toggle', e => { a._openDetails = e.target.open; });
   // Einheit: Vorschläge wie bei den Namen
   const ui = root.querySelector('#f-unit'), us = root.querySelector('#unitSugg');
@@ -1227,12 +1285,12 @@ function bindSettings(root, a, onChange){
 
 function openNew(presetName, opts = {}){
   const a = newArticle(presetName || '');
-  let qty = 1, touched = false, lastSig = null, sizeStr = opts.size ? fmtAmount(opts.size.v, opts.size.base) : '';
+  let qty = opts.count || 1, touched = false, lastSig = null, sizeStr = opts.size ? fmtAmount(opts.size.v, opts.size.base) : '';
   const root = $('#sheetInner');
   let nameEl, suggEl, bodyEl;
   const renderBody = force => {
     const existing = findByName(a.name);
-    const sig = (existing ? existing.id : '') + '|' + a.cat + '|' + a.loc + '|' + a.mode + '|' + a.unit + '|' + (a._from || '');
+    const sig = (existing ? existing.id : '') + '|' + a.cat + '|' + a.loc + '|' + a.mode + '|' + a.unit + '|' + (a._from || '') + '|' + !!a.openable;
     if (!force && sig === lastSig) return;
     lastSig = sig;
     const unitText = () => qtyUnit(qty, existing ? unitOf(existing) : unitOf(a));
@@ -1244,7 +1302,7 @@ function openNew(presetName, opts = {}){
         sizeChips(existing) + '<div class="hint">Optional. Mit Größe zeigt die App auch die Gesamtmenge.</div></div>' +
       (existing ? '' : settingsFields(a)) +
       '<div class="sheet-foot"><span></span><button class="btn" id="save">' + (existing ? 'Dazuzählen' : 'Anlegen') + '</button></div>';
-    bodyEl.querySelector('#qMinus').onclick = () => { qty = Math.max(1, qty - 1); bodyEl.querySelector('#qv').textContent = unitText(); };
+    bodyEl.querySelector('#qMinus').onclick = () => { qty = Math.max(0, qty - 1); bodyEl.querySelector('#qv').textContent = unitText(); };
     bodyEl.querySelector('#qPlus').onclick = () => { qty += 1; bodyEl.querySelector('#qv').textContent = unitText(); };
     const si = bodyEl.querySelector('#f-size');
     si.addEventListener('input', () => { sizeStr = si.value; });
@@ -1256,7 +1314,7 @@ function openNew(presetName, opts = {}){
   const applyName = () => {
     a.name = nameEl.value;
     if (bodyEl.querySelector('#f-cat')) readSettings(bodyEl, a);
-    if (!touched) { const g = guess(a.name); if (g.cat) a.cat = g.cat; if (g.loc) a.loc = g.loc; a.mode = g.mode; a.unit = g.unit || (g.mode === 'level' ? 'Pkg' : 'Stk'); a._from = g.from || null; }
+    if (!touched) { const g = guess(a.name); if (g.cat) a.cat = g.cat; if (g.loc) a.loc = g.loc; a.mode = g.mode; a.unit = g.unit || (g.mode === 'level' ? 'Pkg' : 'Stk'); a._from = g.from || null; a.openable = !!g.openable; a.openCheckDays = g.openCheckDays || null; a.openMaxDays = g.openMaxDays || null; }
     renderSugg(); renderBody(false);
   };
   const save = () => {
@@ -1267,8 +1325,10 @@ function openNew(presetName, opts = {}){
     const target = existing ? clone(existing) : a;
     const size = readSize(target, bodyEl.querySelector('#f-size').value);
     if (size === false) { toast('Größe nicht verstanden – z. B. 400 g, 1,5 l oder 10 Stk'); bodyEl.querySelector('#f-size').focus(); return; }
-    if (existing) { addStock(target, qty, size); if (opts.code) attachCode(target, opts.code, opts.size, opts.codeName); putArticle(target); toast(target.name + ': ' + fmtNum(qty) + ' dazugezählt'); }
-    else { if (bodyEl.querySelector('#f-cat')) readSettings(bodyEl, a); a.name = name; addStock(a, qty, size); if (opts.code) attachCode(a, opts.code, opts.size, opts.codeName); putArticle(a); learn(a); toast(a.name + ' angelegt'); }
+    // Menge 0: Artikel ohne Bestand anlegen (z. B. um ihn auf die Einkaufsliste zu setzen)
+    const stock = t => { if (qty > 0) addStock(t, qty, size); else if (size) { t.packSize = size; t.sizesUsed = [...new Set([size, ...(t.sizesUsed || [])])].slice(0, 6); } };
+    if (existing) { stock(target); if (opts.code) attachCode(target, opts.code, opts.size, opts.codeName, opts.count); putArticle(target); toast(qty > 0 ? target.name + ': ' + fmtNum(qty) + ' dazugezählt' : target.name + ' gespeichert'); }
+    else { if (bodyEl.querySelector('#f-cat')) readSettings(bodyEl, a); a.name = name; stock(a); if (opts.code) attachCode(a, opts.code, opts.size, opts.codeName, opts.count); putArticle(a); learn(a); toast(a.name + ' angelegt' + (qty > 0 ? '' : ', noch ohne Bestand')); }
     closeSheet();
     if (opts.after) opts.after();
   };
@@ -1344,7 +1404,7 @@ function openEdit(id){
     let lotsHTML = '';
     for (const l of lots) {
       const st = lotStatus(l);
-      const info = [l.bought ? 'gekauft ' + fmtDate(l.bought) : '', l.check ? (st === 'w' ? '<span style="color:var(--mustard)">prüfen seit ' + fmtDate(l.check) + '</span>' : 'ohne Prüfen bis ' + fmtDate(l.check)) : '', l.expires ? (st === 'x' ? '<span style="color:var(--berry)">abgelaufen ' + fmtDate(l.expires) + '</span>' : 'haltbar bis ' + fmtDate(l.expires)) : ''].filter(Boolean).join(', ');
+      const info = [l.bought ? 'gekauft ' + fmtDate(l.bought) : '', l.opened ? 'geöffnet ' + fmtDate(l.opened) : '', l.check ? (st === 'w' ? '<span style="color:var(--mustard)">prüfen seit ' + fmtDate(l.check) + '</span>' : 'ohne Prüfen bis ' + fmtDate(l.check)) : '', l.expires ? (st === 'x' ? '<span style="color:var(--berry)">abgelaufen ' + fmtDate(l.expires) + '</span>' : 'haltbar bis ' + fmtDate(l.expires)) : ''].filter(Boolean).join(', ');
       const szt = l.size && a.base ? fmtAmount(l.size, a.base) : '';
       const label = a.mode === 'level' ? '1 ' + esc(unitOf(a)) + (szt ? ' à ' + esc(szt) : '') + ', ' + LEVEL_NAME(l.qty) : esc(qtyUnit(l.qty, unitOf(a))) + (szt ? ' à ' + esc(szt) : '');
       lotsHTML += '<div class="lot"><div class="l">' + label + '<small>' + info + '</small></div><button class="btn danger" data-discard="' + l.id + '">Entsorgen</button></div>';
@@ -1358,6 +1418,7 @@ function openEdit(id){
       '<div class="stockbox"><div class="sumline"><b>' + esc(stockText(a)) + '</b>' + (hasMin(a) ? '<span class="hint" style="margin:0">nachkaufen unter ' + esc(fmtMin(a)) + '</span>' : '') + '</div>' +
         lotsHTML +
         '<div class="actions">' + (t > 0 ? '<button class="btn ghost" id="use1">' + (a.mode === 'level' ? 'Etwas verbraucht' : '1 verbraucht') + '</button>' : '') +
+        (canOpen(a) ? '<button class="btn ghost" id="open1">1 öffnen</button>' : '') +
         '</div><div class="actions"><div class="stepper"><button id="aMinus" aria-label="weniger">−</button><span>' + esc(qtyUnit(addQty, unitOf(a))) + '</span><button id="aPlus" aria-label="mehr">+</button></div>' +
         '<span class="hint" style="margin:0">à</span><input type="text" id="f-addsize" class="sizein" autocomplete="off" enterkeyhint="done" placeholder="Größe" aria-label="Packungsgröße" value="' + esc(addSizeStr != null ? addSizeStr : (a.packSize ? fmtAmount(a.packSize, a.base) : '')) + '"><button class="btn" id="addBtn">Dazu</button></div>' + sizeChips(a) +
       '</div>' +
@@ -1371,6 +1432,7 @@ function openEdit(id){
     root.querySelectorAll('[data-dq]').forEach(b => b.onclick = () => { const l = S.articles[id].lots.find(x => x.id === discardLot); discardQty = Math.min(Math.max(1, discardQty + +b.dataset.dq), l ? l.qty : 1); build(); });
     root.querySelectorAll('[data-reason]').forEach(b => b.onclick = () => { const l = S.articles[id].lots.find(x => x.id === discardLot); discard(id, discardLot, Math.min(discardQty, l ? l.qty : 1), b.dataset.reason); discardLot = null; });
     const u = root.querySelector('#use1'); if (u) u.onclick = () => consumeOne(id);
+    const o1 = root.querySelector('#open1'); if (o1) o1.onclick = () => openOne(id);
     root.querySelector('#aMinus').onclick = () => { addQty = Math.max(1, addQty - 1); build(); };
     root.querySelector('#aPlus').onclick = () => { addQty += 1; build(); };
     const asz = root.querySelector('#f-addsize');
@@ -1386,6 +1448,10 @@ function openEdit(id){
     };
     root.querySelector('#toList').onclick = () => { addToShopById(id); };
     root.querySelector('#scanCode').onclick = () => openScanner({assignTo: id});
+    root.querySelectorAll('[data-cq]').forEach(b => b.onclick = () => {
+      const c = clone(S.articles[id]);
+      c.codes = (c.codes || []).map(x => x.c === b.dataset.cq ? {...x, q: Math.max(1, (x.q || 1) + +b.dataset.d)} : x); putArticle(c);
+    });
     root.querySelectorAll('[data-delcode]').forEach(b => b.onclick = () => {
       const before = clone(S.articles[id]), c = clone(S.articles[id]);
       c.codes = (c.codes || []).filter(x => x.c !== b.dataset.delcode); putArticle(c);
@@ -1400,7 +1466,8 @@ function openEdit(id){
     bindSettings(root, draft, (rebuild) => {
       const cur = clone(S.articles[id]);
       const keep = draft._openDetails;
-      Object.assign(cur, {cat: draft.cat, loc: draft.loc, mode: draft.mode, unit: draft.unit, min: draft.min, minAmt: draft.minAmt || null, minIn: draft.minIn || null, buy: draft.buy, checkDays: draft.checkDays, maxDays: draft.maxDays});
+      Object.assign(cur, {cat: draft.cat, loc: draft.loc, mode: draft.mode, unit: draft.unit, min: draft.min, minAmt: draft.minAmt || null, minIn: draft.minIn || null, buy: draft.buy, checkDays: draft.checkDays, maxDays: draft.maxDays,
+        openable: !!draft.openable, openCheckDays: draft.openCheckDays || null, openMaxDays: draft.openMaxDays || null});
       if (cur.mode !== S.articles[id].mode) cur.lots = convertLots(S.articles[id], cur.mode);
       putArticle(cur);
       learn(cur);
@@ -1764,8 +1831,9 @@ function openMeal(planId){
 }
 
 /* ============ Barcodes ============
-   Ein Artikel kann mehrere Barcodes haben (a.codes = [{c, size, n}]): die Hafermilch von zwei Marken,
-   die 500-g- und die 1-kg-Packung. size ist die Packungsgröße in der Grundeinheit des Artikels, n der Name laut Datenbank. */
+   Ein Artikel kann mehrere Barcodes haben (a.codes = [{c, q, size, n}]): die Hafermilch von zwei Marken,
+   die 500-g- und die 1-kg-Packung. q ist, wie viele Einheiten ein Scan zählt (Kiwi im 3er-Pack: 3),
+   size die Größe einer Einheit in der Grundeinheit des Artikels, n der Name laut Datenbank. */
 const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
 const VENDOR = {js: 'vendor/barcode-detector-3.2.2.js', wasm: 'vendor/zxing_reader-3.1.3.wasm'};
 // Prüfziffer von EAN-8, EAN-13 und GTIN-14, damit Fehllesungen nicht als Artikel hängen bleiben
@@ -1783,18 +1851,21 @@ function normCode(raw, format){
   return validCode(c) ? c : '';
 }
 const findByCode = c => Object.values(S.articles).find(a => (a.codes || []).some(x => x.c === c)) || null;
-function attachCode(a, c, size, label){
+function attachCode(a, c, size, label, count){
   // Ein Barcode gehört immer genau einem Artikel
   for (const o of Object.values(S.articles)) if (o.id !== a.id && (o.codes || []).some(x => x.c === c)) { const oc = clone(o); oc.codes = oc.codes.filter(x => x.c !== c); putArticle(oc); }
   let sz = null;
   if (size && size.v > 0 && size.base && (!a.base || a.base === size.base)) { a.base = size.base; sz = size.v; }
-  a.codes = [...(a.codes || []).filter(x => x.c !== c), {c, size: sz, n: label || null}];
+  const prev = (a.codes || []).find(x => x.c === c);
+  a.codes = [...(a.codes || []).filter(x => x.c !== c), {c, q: count > 1 ? Math.round(count) : (prev && prev.q) || 1, size: sz, n: label || null}];
   return a;
 }
 function codesField(a){
   const list = a.codes || [];
-  const rows = list.map(x => '<div class="lot"><div class="l">' + esc(x.c) + '<small>' + esc([x.n, x.size && a.base ? fmtAmount(x.size, a.base) : ''].filter(Boolean).join(', ') || 'ohne weitere Angaben') + '</small></div><button class="xbtn" data-delcode="' + esc(x.c) + '" aria-label="Barcode ' + esc(x.c) + ' entfernen">×</button></div>').join('');
-  return '<div class="field"><span class="lbl">Barcodes</span>' + (rows || '<p class="hint" style="margin:0 0 8px">Noch keiner. Mit Barcode erkennt der Scanner diesen Artikel sofort.</p>') +
+  const rows = list.map(x => '<div class="lot"><div class="l">' + esc(x.c) + '<small>' + esc([x.n, x.size && a.base ? 'à ' + fmtAmount(x.size, a.base) : ''].filter(Boolean).join(', ') || 'ohne weitere Angaben') + '</small></div>' +
+    '<div class="stepper" title="So viel zählt ein Scan"><button type="button" data-cq="' + esc(x.c) + '" data-d="-1" aria-label="weniger pro Scan">−</button><span>' + esc(qtyUnit(x.q || 1, unitOf(a))) + '</span><button type="button" data-cq="' + esc(x.c) + '" data-d="1" aria-label="mehr pro Scan">+</button></div>' +
+    '<button class="xbtn" data-delcode="' + esc(x.c) + '" aria-label="Barcode ' + esc(x.c) + ' entfernen">×</button></div>').join('');
+  return '<div class="field"><span class="lbl">Barcodes</span>' + (rows ? '<p class="hint" style="margin:0 0 4px">Die Menge rechts zählt ein Scan beim Einräumen, etwa 3 für einen 3er-Pack.</p>' + rows : '') + (rows ? '' : '<p class="hint" style="margin:0 0 8px">Noch keiner. Mit Barcode erkennt der Scanner diesen Artikel sofort.</p>') +
     '<button type="button" class="btn ghost" id="scanCode" style="margin-top:6px">Barcode scannen</button></div>';
 }
 
@@ -1817,11 +1888,18 @@ async function lookupCode(c){
   const name = String(p.product_name_de || p.product_name || '').trim();
   const brand = String(p.brands || '').split(',')[0].trim();
   if (!name && !brand) return null;
-  let size = null;
-  const pq = num(p.product_quantity), pu = String(p.product_quantity_unit || '').toLowerCase();
-  if (pq > 0 && MEASURE[pu]) size = {v: pq * MEASURE[pu][1], base: MEASURE[pu][0]};
-  else { const q = parseAmount(String(p.quantity || '').replace(/\s*℮\s*$/, '')); if (q && q.base) size = q; }
-  return {name: name || brand, brand: name && brand && !norm(name).includes(norm(brand)) ? brand : '', size};
+  let size = null, count = null;
+  const qs = String(p.quantity || '').replace(/\s*℮\s*$/, '').trim();
+  const multi = qs.match(/^(\d+)\s*[x×]\s*(.+)$/i);   // „6 x 0,5 l“: 6 Einheiten à 0,5 l
+  if (multi) { count = +multi[1]; const q = parseAmount(multi[2]); if (q && q.base) size = q; }
+  else {
+    const pq = num(p.product_quantity), pu = String(p.product_quantity_unit || '').toLowerCase();
+    if (pq > 0 && MEASURE[pu]) size = {v: pq * MEASURE[pu][1], base: MEASURE[pu][0]};
+    else { const q = parseAmount(qs); if (q && q.base) size = q; }
+  }
+  if (size && size.base === 'Stk') { count = Math.round(size.v); size = null; }   // „3 Stk“ ist eine Stückzahl, keine Größe
+  if (!(count > 1)) count = null;
+  return {name: name || brand, brand: name && brand && !norm(name).includes(norm(brand)) ? brand : '', size, count};
 }
 const infoLabel = info => info ? [info.brand, info.name].filter(Boolean).join(' ') : null;
 // Welche vorhandenen Artikel könnten gemeint sein? („Ja! Natürlich Bio-Vollmilch“ → Milch)
@@ -1861,7 +1939,7 @@ async function getDetector(){
 }
 
 const SCAN_MODES = [['add', 'Einräumen'], ['use', 'Verbraucht'], ['look', 'Nachschauen']];
-const SCAN_HINT = {add: 'Jeder Scan zählt 1 dazu.', use: 'Jeder Scan zieht 1 ab.', look: 'Ein Scan öffnet den Artikel.', assign: 'Scanne den Barcode auf der Packung.'};
+const SCAN_HINT = {add: 'Jeder Scan zählt dazu.', use: 'Jeder Scan zieht 1 ab.', look: 'Ein Scan öffnet den Artikel.', assign: 'Scanne den Barcode auf der Packung.'};
 function openScanner(opts = {}){
   const root = $('#sheetInner');
   const st = {mode: opts.assignTo ? 'assign' : (UI.scanMode || 'add'), paused: false, panel: null, last: '', lastSeen: 0, torch: false};
@@ -1954,9 +2032,21 @@ function openScanner(opts = {}){
       const r = consumeOne(id, sz, true);
       st.panel = {kind: 'done', id, code: c, text: a.mode === 'level' ? 'etwas verbraucht' : '1 verbraucht', undo: r && r.undo}; panel(); return;
     }
-    const before = clone(a), n = clone(a);
-    addStock(n, 1, size); putArticle(n);
-    st.panel = {kind: 'done', id, code: c, text: '1 dazu', undo: () => putArticle(before)}; panel();
+    const before = clone(a), n = clone(a), q = e && e.q > 1 ? e.q : 1;
+    addStock(n, q, size); putArticle(n);
+    st.panel = {kind: 'done', id, code: c, before, text: qtyUnit(q, unitOf(n)) + ' dazu', undo: undoAdd(id, before)}; panel();
+  };
+  // Rückgängig nimmt nur den Bestand zurück, die Menge pro Scan bleibt
+  const undoAdd = (id, before) => () => putArticle({...clone(before), codes: clone((S.articles[id] || before).codes || [])});
+  // „Ein Scan zählt“ ändern: den gerade gebuchten Scan gleich mit korrigieren
+  const setCount = (p, d) => {
+    const cur = S.articles[p.id], e = cur && (cur.codes || []).find(x => x.c === p.code); if (!e) return;
+    const q = Math.max(1, (e.q || 1) + d); if (q === (e.q || 1)) return;
+    const n = clone(p.before);
+    n.codes = clone(cur.codes).map(x => x.c === p.code ? {...x, q} : x);
+    addStock(n, q, e.size || undefined); putArticle(n);
+    p.text = qtyUnit(q, unitOf(n)) + ' dazu'; p.undo = undoAdd(p.id, p.before);
+    panel();
   };
   const assign = async c => {
     const tgt = S.articles[opts.assignTo]; if (!tgt) { close(); return; }
@@ -1967,12 +2057,12 @@ function openScanner(opts = {}){
     st.panel = {kind: 'saving', code: c}; panel();
     const info = await lookupCode(c);
     if (!alive()) return;
-    const n = attachCode(clone(S.articles[tgt.id]), c, info && info.size, infoLabel(info));
+    const n = attachCode(clone(S.articles[tgt.id]), c, info && info.size, infoLabel(info), info && info.count);
     putArticle(n); toast('Barcode bei ' + n.name + ' gemerkt');
     leave(() => openEdit(tgt.id));
   };
   const link = (id, c, info) => {
-    const n = attachCode(clone(S.articles[id]), c, info && info.size, infoLabel(info));
+    const n = attachCode(clone(S.articles[id]), c, info && info.size, infoLabel(info), info && info.count);
     putArticle(n); learn(n);
     st.paused = false; st.lastSeen = Date.now();
     if (st.mode === 'look') { toast('Barcode bei ' + n.name + ' gemerkt'); leave(() => openEdit(id)); return; }
@@ -1992,9 +2082,12 @@ function openScanner(opts = {}){
     if (!p) { el.innerHTML = '<p class="hint">' + esc(SCAN_HINT[st.mode]) + '</p>'; return; }
     if (p.kind === 'done') {
       const a = S.articles[p.id]; if (!a) { st.panel = null; panel(); return; }
+      const e = (a.codes || []).find(x => x.c === p.code);
       el.innerHTML = '<div class="scanbox"><div class="sumline"><b>' + esc(a.name) + '</b><span class="hint">' + esc(p.text) + '</span></div><p class="hint">Jetzt: ' + esc(stockText(a)) + '</p>' +
-        '<div class="actions">' + (st.mode !== 'use' || total(a) > 0 ? '<button type="button" class="btn ghost" id="sAgain">Noch 1</button>' : '') + (p.undo ? '<button type="button" class="btn quiet" id="sUndo">Rückgängig</button>' : '') + '<button type="button" class="btn quiet" id="sOpen">Öffnen</button></div></div>';
+        (p.before && e ? '<div class="actions" style="margin:0 0 4px"><span class="hint" style="margin:0">Ein Scan zählt</span><div class="stepper"><button type="button" id="sqMinus" aria-label="weniger pro Scan">−</button><span>' + esc(qtyUnit(e.q || 1, unitOf(a))) + '</span><button type="button" id="sqPlus" aria-label="mehr pro Scan">+</button></div></div>' : '') +
+        '<div class="actions">' + (st.mode !== 'use' || total(a) > 0 ? '<button type="button" class="btn ghost" id="sAgain">' + (p.before ? 'Noch mal' : 'Noch 1') + '</button>' : '') + (p.undo ? '<button type="button" class="btn quiet" id="sUndo">Rückgängig</button>' : '') + '<button type="button" class="btn quiet" id="sOpen">Öffnen</button></div></div>';
       const ag = el.querySelector('#sAgain'); if (ag) ag.onclick = () => act(p.id, p.code);
+      const qm = el.querySelector('#sqMinus'); if (qm) { qm.onclick = () => setCount(p, -1); el.querySelector('#sqPlus').onclick = () => setCount(p, 1); }
       const ud = el.querySelector('#sUndo'); if (ud) ud.onclick = () => { p.undo(); st.panel = null; st.lastSeen = Date.now(); panel(); };
       el.querySelector('#sOpen').onclick = () => leave(() => openEdit(p.id));
       return;
@@ -2010,7 +2103,7 @@ function openScanner(opts = {}){
     // Unbekannter Barcode
     const head = '<div class="sumline"><b>' + (p.info ? esc(p.info.name) : 'Unbekannter Barcode') + '</b><span class="hint">' + esc(p.code) + '</span></div>';
     const sub = p.loading ? 'Suche bei Open Food Facts …'
-      : p.info ? [p.info.brand, p.info.size ? fmtAmount(p.info.size.v, p.info.size.base) : ''].filter(Boolean).join(', ') || 'Gefunden bei Open Food Facts'
+      : p.info ? [p.info.brand, (p.info.count ? p.info.count + (p.info.size ? ' × ' + fmtAmount(p.info.size.v, p.info.size.base) : ' Stk') : p.info.size ? fmtAmount(p.info.size.v, p.info.size.base) : '')].filter(Boolean).join(', ') || 'Gefunden bei Open Food Facts'
       : p.offline ? 'Offline, nachschlagen geht gerade nicht.' : 'In Open Food Facts nicht gefunden.';
     el.innerHTML = '<div class="scanbox">' + head + '<p class="hint">' + esc(sub) + '</p>' +
       (p.loading ? '' :
@@ -2019,7 +2112,7 @@ function openScanner(opts = {}){
       '</div>';
     if (p.loading) return;
     el.querySelector('#sSkip').onclick = resume;
-    el.querySelector('#sNew').onclick = () => leave(() => openNew(p.info ? p.info.name : '', {code: p.code, size: p.info && p.info.size, codeName: infoLabel(p.info), after: () => openScanner()}));
+    el.querySelector('#sNew').onclick = () => leave(() => openNew(p.info ? p.info.name : '', {code: p.code, size: p.info && p.info.size, count: p.info && p.info.count, codeName: infoLabel(p.info), after: () => openScanner()}));
     const fi = el.querySelector('#sFind'), sl = el.querySelector('#sList');
     if (fi) {
       fi.addEventListener('input', () => { p.q = fi.value; sl.innerHTML = findList(p); });
@@ -2076,15 +2169,61 @@ function toast(msg, undo){
 /* ============ Ereignisse ============ */
 document.querySelector('.tabs').addEventListener('click', e => {
   const t = e.target.closest('[data-tab]'); if (!t) return;
-  UI.tab = t.dataset.tab; window.scrollTo(0, 0); render();
+  goTab(t.dataset.tab, TABS.indexOf(t.dataset.tab) - TABS.indexOf(UI.tab));
 });
+const TABS = [...document.querySelectorAll('.tab')].map(t => t.dataset.tab);
+function goTab(tab, dir){
+  if (!tab || tab === UI.tab) return;
+  UI.tab = tab; window.scrollTo(0, 0); render();
+  const v = $('#view'); v.classList.remove('in-l', 'in-r'); void v.offsetWidth; if (dir) v.classList.add(dir > 0 ? 'in-r' : 'in-l');
+}
+(() => {
+  let t0 = null;
+  document.addEventListener('touchstart', e => {
+    t0 = null;
+    if (UI.sheet || e.touches.length !== 1 || !$('#login').hidden) return;
+    const el = e.target;
+    // Nicht in Bereichen, die selbst seitlich scrollen oder Eingaben annehmen
+    if (el.closest('.chips,.sugg,input,textarea,select,.tabs,#sheet,.snack')) return;
+    const x = e.touches[0].clientX;
+    if (x < 24 || x > innerWidth - 24) return;   // Bildschirmrand gehört der System-Geste
+    t0 = {x, y: e.touches[0].clientY, t: Date.now()};
+  }, {passive: true});
+  document.addEventListener('touchend', e => {
+    if (!t0 || UI.sheet) { t0 = null; return; }
+    const p = e.changedTouches[0], dx = p.clientX - t0.x, dy = p.clientY - t0.y, dt = Date.now() - t0.t;
+    t0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8 || dt > 700) return;
+    const i = TABS.indexOf(UI.tab) + (dx < 0 ? 1 : -1);
+    if (i >= 0 && i < TABS.length) goTab(TABS[i], dx < 0 ? 1 : -1);
+  }, {passive: true});
+})();
 $('#fab').onclick = () => UI.tab === 'cook' ? openRecipe(null) : openNew();
 $('#backdrop').onclick = closeSheet;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && UI.sheet) closeSheet(); });
 $('#finishBtn').onclick = finishShopping;
+/* Langes Drücken auf − bei öffenbaren Artikeln: eine Einheit öffnen statt verbrauchen */
+const HOLD = {timer: null, el: null, x: 0, y: 0, fired: null};
+function holdCancel(){ clearTimeout(HOLD.timer); HOLD.timer = null; if (HOLD.el) HOLD.el.classList.remove('hold'); HOLD.el = null; }
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest('[data-use]'); holdCancel(); HOLD.fired = null;
+  if (!el || el.closest('#sheet') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  const a = S.articles[el.dataset.use]; if (!a || !a.openable) return;
+  HOLD.el = el; HOLD.x = e.clientX; HOLD.y = e.clientY; el.classList.add('hold');
+  HOLD.timer = setTimeout(() => {
+    HOLD.timer = null; el.classList.remove('hold'); HOLD.el = null; HOLD.fired = el.dataset.use; HOLD.at = Date.now();
+    if (navigator.vibrate) navigator.vibrate(30);
+    const cur = S.articles[el.dataset.use]; if (!cur) return;
+    if (canOpen(cur)) openOne(cur.id); else toast(cur.name + ': schon alles offen');
+  }, 500);
+});
+document.addEventListener('pointermove', e => { if (HOLD.el && Math.hypot(e.clientX - HOLD.x, e.clientY - HOLD.y) > 10) holdCancel(); });
+['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, () => { if (HOLD.timer) holdCancel(); }));
+document.addEventListener('contextmenu', e => { if (e.target.closest('[data-use]')) e.preventDefault(); });
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-use],[data-refill],[data-open],[data-filter],[data-act],[data-toggle],[data-qty],[data-remove],[data-cookview],[data-meal],[data-addmeal],[data-recipe]');
   if (!el || el.closest('#sheet')) return;
+  if (HOLD.fired && el.dataset.use === HOLD.fired && Date.now() - HOLD.at < 1500) { HOLD.fired = null; return; }   // war ein langes Drücken
   const d = el.dataset;
   if (d.use) consumeOne(d.use);
   else if (d.refill) { const a = clone(S.articles[d.refill]); addStock(a, a.buy || 1); putArticle(a); toast(a.name + ': ' + fmtNum(a.buy || 1) + ' dazu'); }
