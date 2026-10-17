@@ -74,6 +74,32 @@ h1{font-family:var(--display);font-size:32px;line-height:1.1;font-weight:600;let
 main{padding-bottom:150px;overflow-x:hidden;overflow-x:clip}
 .group{margin-top:18px}
 .group h2{font-size:15px;font-weight:600;color:var(--muted);margin:0 0 6px 2px}
+.grouphead{display:flex;align-items:center;gap:6px;width:100%;min-height:36px;margin:-6px 0 -4px -2px;padding:4px 2px;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.grouphead > span{flex:0 1 auto}
+.grouphead small{margin-left:auto;font-weight:500;font-size:13px}
+.grouphead small .w{color:var(--mustard)}
+.grouphead .chev{flex:none;transition:transform .15s}
+.group.shut .grouphead .chev{transform:rotate(-90deg)}
+.group.shut{margin-top:6px}
+.group.shut h2{margin-bottom:0}
+@media (prefers-reduced-motion: reduce){.grouphead .chev{transition:none}}
+.stars{display:flex;gap:2px;margin-left:-6px}
+.star{border:0;background:none;padding:6px;color:var(--line);cursor:pointer;line-height:0}
+.star svg path{fill:currentColor}
+.star[aria-pressed="true"]{color:var(--mustard)}
+.minrow{display:flex;align-items:center;gap:8px}
+.minrow input{flex:1;min-width:0}
+.minrow span{color:var(--muted);font-size:14px}
+.tagchips{display:flex;flex-wrap:wrap;gap:6px}
+.tagchips:not(:empty){margin-bottom:8px}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.rtools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+.rtools .seg{flex:0 1 auto}
+.rtools .seg.mini button{padding:7px 12px;font-size:14px}
+.lot.tagrow{padding:8px 12px}
+.tagrow .btn{padding:8px 12px;font-size:14px}
+.rtags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.rtags span{font-size:12px;line-height:1;padding:4px 8px;border-radius:999px;background:var(--line);color:var(--ink)}
 .list{background:var(--surface);border-radius:var(--radius-m);border:1px solid var(--line);overflow:hidden}
 
 /* Vorratszeile */
@@ -248,6 +274,7 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
 .ingline > small{flex:0 1 auto}
 .meal.cooked .name{text-decoration:line-through;color:var(--muted)}
 .ingprev{margin-top:8px}
+.linkbtn{display:block;margin-left:auto;margin-top:2px;padding:2px 0;border:0;background:none;font:inherit;color:var(--muted);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:right}
 .ingline{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-size:15px}
 .ingline:first-child{border-top:0}
 .ingline small{color:var(--muted);text-align:right;font-size:13px}
@@ -523,15 +550,67 @@ function learn(a){
   saveMeta();
 }
 
+/* Wie viel ein gestrichener Esslöffel (15 ml) wiegt, in Gramm; 1 TL ist ⅓ davon.
+   Drei Stufen, damit nie jemand selbst umrechnen muss:
+   1. EL_TABLE: genaue Werte, gelten sofort (längster passender Begriff gewinnt)
+   2. EL_RULES: typische Werte nach Wortteilen, nur als Vorschlag zum Übernehmen
+   3. EL_FEEL: Auswahl „fühlt sich an wie …“, wenn sonst nichts passt
+   Was nicht nach Pulver klingt (Pasten, Saucen, Öl …), bekommt keinen Wert aus 1 oder 2. */
+const EL_TABLE = [
+  [15, 'salz|tafelsalz|speisesalz|jodsalz|feines salz'],
+  [14, 'zitronensäure'],
+  [13, 'natron|reis|basmati|basmatireis|jasminreis|risottoreis|langkornreis|rundkornreis|milchreis|rote linsen'],
+  [12, 'meersalz|kräutersalz|steinsalz|himalayasalz|fleur de sel|zucker|kristallzucker|feinkristallzucker|rohrzucker|brauner zucker|gelierzucker|vanillezucker|hagelzucker|erythrit|xylit|birkenzucker|quinoa|hirse|glutamat|hirschhornsalz'],
+  [11, 'grieß|weizengrieß|dinkelgrieß|chiasamen|chia|couscous|bulgur|bockshornklee'],
+  [10, 'backpulver|weinsteinbackpulver|kartoffelstärke|knoblauchgranulat|senfsaat|senfkörner|leinsamen|polenta|maisgrieß|gemüsebrühe|brühpulver|suppenwürze|traubenzucker|kokosblütenzucker|schokostreusel|zuckerstreusel|streusel'],
+  [9, 'kurkuma|knoblauchpulver|speisestärke|maizena|stärke|maisstärke|puddingpulver|trockengerm|trockenhefe|gelatine|reismehl|maismehl|agar agar|agar|pektin|saucenbinder|soßenbinder|sesam|mohn|pinienkerne|sonnenblumenkerne|kürbiskerne'],
+  [8, 'mehl|weizenmehl|dinkelmehl|roggenmehl|vollkornmehl|buchweizenmehl|johannisbrotkernmehl|zimt|staubzucker|puderzucker|grillgewürz|gyrosgewürz|hähnchengewürz|hendlgewürz|zitronenpfeffer|gehackte nüsse|nüsse gehackt|gehackte mandeln|mandeln gehackt|gehackte haselnüsse|haselnüsse gehackt|gehackte walnüsse|walnüsse gehackt|kakaonibs'],
+  [7, 'pfeffer|pfeffer gemahlen|schwarzer pfeffer|weißer pfeffer|paprikapulver|paprika edelsüß|paprika scharf|paprika rosenscharf|rauchpaprika|curry|currypulver|chili|chilipulver|cayenne|cayennepfeffer|muskat|muskatnuss|zwiebelpulver|vanillepulver|sumach|lebkuchengewürz|spekulatiusgewürz|milchpulver|mohn gemahlen|gemahlener mohn|kichererbsenmehl'],
+  [6, 'kreuzkümmel|cumin|kümmel|ingwerpulver|kakao|kakaopulver|backkakao|haferflocken|dinkelflocken|hirseflocken|vollkornflocken|semmelbrösel|brösel|paniermehl|mandeln gemahlen|gemahlene mandeln|haselnüsse gemahlen|gemahlene haselnüsse|walnüsse gemahlen|gemahlene walnüsse|nüsse gemahlen|gemahlene nüsse|kaffee|kaffee gemahlen|koriander gemahlen|korianderpulver|kardamom|nelken gemahlen|gemahlene nelken|piment gemahlen|garam masala|ras el hanout|fünf gewürze|five spice|steakpfeffer|senfpulver|wasabipulver|matcha|fenchelsamen|fenchelsaat|fenchel gemahlen|mandelmehl|kokosmehl'],
+  [5, 'kokosraspel|kokosflocken|chiliflocken|pul biber|zaatar|za atar|proteinpulver|eiweißpulver'],
+  [4, 'instantkaffee|löslicher kaffee|rosmarin|flohsamenschalen|kartoffelpüree|püreeflocken|kartoffelpüreeflocken'],
+  [3, 'oregano|thymian|bohnenkraut|kräuter der provence|italienische kräuter|pizzagewürz|hefeflocken'],
+  [2, 'majoran|basilikum|petersilie|dill|salbei|estragon'],
+  [1, 'schnittlauch'],
+];
+const EL_RULES = [[12, 'zucker'], [15, 'salz'], [8, 'mehl'], [9, 'stärke'], [5, 'flocken'], [7, 'pulver|gemahlen|gewürz|masala'], [3, 'kräuter|getrocknet'], [9, 'samen|saat|kerne|körner']];
+const EL_FEEL = [[3, 'wie Kräuter, 3 g'], [7, 'wie Gewürzpulver, 7 g'], [8, 'wie Mehl, 8 g'], [12, 'wie Zucker, 12 g'], [15, 'wie Salz, 15 g']];
+const EL_SKIP = /paste|pesto|sauce|soße|creme|\bmus\b|öl\b|sirup|saft|\btee\b|würfel|riegel|chips|stange|waffel|nudel|knödel|kuchen|gurk|kapsel|\bpads\b|pfefferminz|bohnen|erbsen|brezel|schote/;
+const EL_TERMS = EL_TABLE.flatMap(([g, list]) => list.split('|').map(t => ({t, g}))).sort((x, y) => y.t.length - x.t.length);
+const normEl = s => ' ' + norm(s).replace(/[,.;:()\/'’\-–+&]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+// Stufe 1: Begriff am Wortanfang oder Wortende („Dinkelvollkornmehl“ passt zu „mehl“, „Preiselbeeren“ nicht zu „reis“)
+function elTable(name){
+  const n = normEl(name); if (n.trim() === '' || EL_SKIP.test(n)) return null;
+  const e = EL_TERMS.find(e => n.includes(' ' + e.t) || n.includes(e.t + ' '));
+  return e ? e.g : null;
+}
+// Stufe 2: irgendwo im Namen
+function elRule(name){
+  const n = normEl(name); if (n.trim() === '' || EL_SKIP.test(n)) return null;
+  const r = EL_RULES.find(([, list]) => list.split('|').some(t => n.includes(t)));
+  return r ? r[0] : null;
+}
+// Gramm pro EL für einen Artikel: eigener Wert, sonst Tabelle. Regel-Vorschläge zählen erst, wenn übernommen.
+const elgOf = a => a.elg > 0 ? a.elg : elTable(a.name);
+
 /* ============ Zustand ============ */
 let S = {articles:{}, shopping:{}, log:{}, recipes:{}, plan:{}, wishes:{}, meta:clone(DEFAULT_META)};
 const COLS = ['articles','shopping','log','recipes','plan','wishes'];
-const UI = {tab:'stock', q:'', filter:'all', sheet:null, cookView:'plan'};
+const UI = {tab:'stock', q:'', filter:'all', sheet:null, cookView:'plan', tagFilter: [], collapsed: new Set()};
+// Zugeklappte Kategorien im Vorrat: pro Gerät, jede Person klappt für sich
+const COLLAPSE_KEY = 'haushoed:collapsed';
+try { UI.collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || []); } catch(e) {}
+// Sortierung der Rezepte: pro Gerät
+const SORT_KEY = 'haushoed:recipeSort';
+try { UI.recipeSort = localStorage.getItem(SORT_KEY) || 'name'; } catch(e) { UI.recipeSort = 'name'; }
+function toggleCat(c){
+  if (UI.collapsed.has(c)) UI.collapsed.delete(c); else UI.collapsed.add(c);
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...UI.collapsed])); } catch(e) {}
+  render();
+}
 
 /* ============ Speicher-Schicht ============
-   Nur dieser Abschnitt weiß, WO die Daten liegen.
-   Prototyp: Claude-Datenbank des Artifacts (pro Person privat) + lokaler Cache.
-   Später: hier wird Firestore eingesetzt, der Rest der App bleibt gleich. */
+   Nur dieser Abschnitt weiß, WO die Daten liegen: Firestore (Haushalt) plus Zwischenspeicher im Browser. */
 const LS_KEY = 'haushoed:cache';
 function localLoad(){
   try {
@@ -1023,6 +1102,7 @@ function expiryText(a){
   if (next && daysUntil(next.expires) <= 3) return '<span class="w">haltbar bis ' + fmtDate(next.expires) + '</span>';
   return '';
 }
+const CHEV = '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 function renderStock(){
   $('#title').textContent = 'Vorrat';
   const all = Object.values(S.articles);
@@ -1052,11 +1132,20 @@ function renderStock(){
   const order = [...S.meta.cats, ''];
   const groups = {};
   for (const a of list) { const c = order.includes(a.cat) ? a.cat : ''; (groups[c] = groups[c] || []).push(a); }
+  // Beim Suchen und beim Filter „prüfen“ ist alles offen, sonst würden Treffer in zugeklappten Gruppen fehlen
+  const canCollapse = !q && UI.filter !== 'check';
   let html = '';
   for (const c of order) {
     const items = groups[c]; if (!items) continue;
     items.sort((x, y) => (total(y) > 0) - (total(x) > 0) || x.name.localeCompare(y.name, 'de', {numeric: true}));
-    html += '<section class="group"><h2>' + esc(c || 'Ohne Kategorie') + '</h2><div class="list">';
+    const shut = canCollapse && UI.collapsed.has(c), label = c || 'Ohne Kategorie';
+    if (shut) {
+      const nChk = items.filter(a => articleStatus(a)).length;
+      html += '<section class="group shut"><h2><button class="grouphead" data-togglecat="' + esc(c) + '" aria-expanded="false" aria-label="' + esc(label) + ' aufklappen">' + CHEV + '<span>' + esc(label) + '</span>' +
+        '<small>' + items.length + ' Artikel' + (nChk ? ', <span class="w">' + nChk + ' prüfen</span>' : '') + '</small></button></h2></section>';
+      continue;
+    }
+    html += '<section class="group"><h2>' + (canCollapse ? '<button class="grouphead" data-togglecat="' + esc(c) + '" aria-expanded="true" aria-label="' + esc(label) + ' zuklappen">' + CHEV + '<span>' + esc(label) + '</span></button>' : esc(label)) + '</h2><div class="list">';
     for (const a of items) {
       const t = total(a); const parts = [stockText(a)];
       if (a.loc && !UI.filter.startsWith('loc:')) parts.push(esc(a.loc));
@@ -1511,7 +1600,7 @@ function openEdit(id){
         '</div><div class="actions"><div class="stepper"><button id="aMinus" aria-label="weniger">−</button><span>' + esc(qtyUnit(addQty, unitOf(a))) + '</span><button id="aPlus" aria-label="mehr">+</button></div>' +
         '<span class="hint" style="margin:0">à</span><input type="text" id="f-addsize" class="sizein" autocomplete="off" enterkeyhint="done" placeholder="Größe" aria-label="Packungsgröße" value="' + esc(addSizeStr != null ? addSizeStr : (a.packSize ? fmtAmount(a.packSize, a.base) : '')) + '"><button class="btn" id="addBtn">Dazu</button></div>' + sizeChips(a) +
       '</div>' +
-      settingsFields(draft) + codesField(a) +
+      settingsFields(draft) + recipeField(a) + codesField(a) +
       '<div class="sheet-foot"><button class="btn danger" id="delBtn">' + (delSure ? 'Wirklich löschen?' : 'Artikel löschen') + '</button><button class="btn ghost" id="toList">Auf die Liste</button></div>';
     root.querySelector('#close').onclick = closeSheet;
     const nameEl = root.querySelector('#f-name');
@@ -1536,6 +1625,7 @@ function openEdit(id){
       addStock(c, addQty, size); putArticle(c); toast(c.name + ': ' + qtyUnit(addQty, unitOf(c)) + (size ? ' à ' + fmtAmount(size, c.base) : '') + ' dazu', () => putArticle(before));
     };
     root.querySelector('#toList').onclick = () => { addToShopById(id); };
+    bindRecipeField(root, id);
     root.querySelector('#scanCode').onclick = () => openScanner({assignTo: id});
     root.querySelectorAll('[data-cq]').forEach(b => b.onclick = () => {
       const c = clone(S.articles[id]);
@@ -1566,6 +1656,66 @@ function openEdit(id){
   };
   openSheet(build);
 }
+/* Für Rezepte: Packungsgröße der vorhandenen Einheiten nachtragen und „1 EL wiegt etwa … g“.
+   Erscheint nur, wenn es etwas bringt: ein Rezept braucht den Artikel in g, ml, EL oder TL,
+   oder es gibt schon einen Wert bzw. einen Vorschlag. */
+function usedByAmount(a){
+  return Object.values(S.recipes).some(r => recipeIngredients(r).some(i => (i.kind === 'measure' || i.spoon) && (matchArticle(i.name) || {}).id === a.id));
+}
+function recipeField(a){
+  const used = usedByAmount(a);
+  const needSize = used && total(a) > 0 && !hasSizes(a) && a.base !== 'Stk';
+  const own = a.elg > 0 ? a.elg : null, tab = elTable(a.name), rule = own || tab ? null : elRule(a.name);
+  const showElg = a.base === 'g' && (own || tab || rule || used);
+  if (!needSize && !showElg) return '';
+  let h = '<div class="field" id="f-recipe"><span class="lbl">Für Rezepte</span>';
+  if (needSize) h += '<p class="hint" style="margin:0 0 6px">Damit Rezepte die Menge prüfen können, braucht es die Größe einer Packung.</p>' +
+    '<div class="actions" style="margin-top:0"><input type="text" id="f-fixsize" class="sizein" style="flex:1;min-width:0;max-width:none" autocomplete="off" enterkeyhint="done" placeholder="Größe, z. B. 40 g" aria-label="Größe der vorhandenen Packungen"><button type="button" class="btn ghost" id="fixSizeBtn">Übernehmen</button></div>';
+  if (showElg) {
+    const cur = own || tab;
+    h += '<div class="actions"' + (needSize ? '' : ' style="margin-top:0"') + '><label for="f-elg" class="hint" style="margin:0">1 EL wiegt etwa</label>' +
+      '<input type="number" inputmode="decimal" min="0" step="any" id="f-elg" class="sizein" style="max-width:90px" value="' + (own ? String(own) : '') + '" placeholder="' + (tab ? tab : '') + '"><span class="hint" style="margin:0">g</span></div>';
+    if (rule) h += '<div class="actions"><span class="hint" style="margin:0">Vorschlag: ' + rule + ' g</span><button type="button" class="btn ghost" data-elg="' + rule + '">Übernehmen</button></div>';
+    h += '<p class="hint" style="margin:6px 0 4px">' + (own ? '1 TL ist ⅓ davon.' + (tab && tab !== own ? ' Feld leeren, um wieder den Wert aus der Tabelle (' + tab + ' g) zu nehmen.' : '') :
+      tab ? 'Aus der Tabelle, gestrichener Löffel. 1 TL ist ⅓ davon.' : rule ? 'Oder such aus, was sich ähnlich anfühlt:' : 'Noch kein Wert. Such aus, was sich ähnlich anfühlt:') + '</p>' +
+      '<div class="chips" style="flex-wrap:wrap;padding-top:0">' + EL_FEEL.map(([g, l]) => '<button type="button" class="chip" data-elg="' + g + '" aria-pressed="' + (cur === g) + '">' + esc(l) + '</button>').join('') + '</div>';
+  }
+  return h + '</div>';
+}
+function bindRecipeField(root, id){
+  const setElg = v => {
+    const before = clone(S.articles[id]), c = clone(S.articles[id]);
+    const nv = v > 0 ? Math.round(v * 10) / 10 : null;
+    if ((c.elg || null) === nv) return;
+    c.elg = nv;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    putArticle(c);
+    toast(nv ? c.name + ': 1 EL ≈ ' + fmtNum(nv) + ' g' : c.name + ': Wert aus der Tabelle', () => putArticle(before));
+  };
+  const ge = root.querySelector('#f-elg');
+  if (ge) {
+    ge.addEventListener('change', () => setElg(num(ge.value)));
+    ge.addEventListener('keydown', e => { if (e.key === 'Enter') ge.blur(); });
+  }
+  root.querySelectorAll('[data-elg]').forEach(b => b.onclick = () => setElg(+b.dataset.elg));
+  const fs = root.querySelector('#f-fixsize'), fb = root.querySelector('#fixSizeBtn');
+  if (fs && fb) {
+    fs.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fb.click(); } });
+    fb.onclick = () => {
+      const before = clone(S.articles[id]), c = clone(S.articles[id]);
+      const p = parseAmount(fs.value);
+      if (!p || !p.base || p.base === 'Stk') { toast('Größe nicht verstanden – z. B. 40 g, 250 ml oder 1 l'); return; }
+      const sized = (c.lots || []).filter(l => l.size > 0);
+      if (sized.length && c.base && c.base !== p.base) { toast('Die anderen Packungen sind in ' + (c.base === 'g' ? 'Gramm' : 'Milliliter') + ' angegeben'); return; }
+      c.base = p.base;
+      c.lots = (c.lots || []).map(l => l.size > 0 ? l : {...l, size: p.v});
+      if (!c.packSize) c.packSize = p.v;
+      c.sizesUsed = [...new Set([p.v, ...(c.sizesUsed || [])])].slice(0, 6);
+      fs.blur(); putArticle(c);
+      toast(c.name + ': Größe ' + fmtAmount(p.v, p.base) + ' übernommen', () => putArticle(before));
+    };
+  }
+}
 function convertLots(a, mode){
   if (mode === 'level') return (a.lots || []).flatMap(l => Array.from({length: Math.max(1, Math.round(l.qty))}, () => ({...l, id: newId(), qty: 1})));
   return (a.lots || []).map(l => ({...l, qty: 1}));
@@ -1578,12 +1728,14 @@ function addToShopById(id){
 }
 
 /* ============ Rezepte & Wochenplan ============ */
-const SOFT_UNITS = {el: 'EL', tl: 'TL', prise: 'Prise', prisen: 'Prisen', msp: 'Msp', messerspitze: 'Msp', schuss: 'Schuss', spritzer: 'Spritzer', handvoll: 'Handvoll', zehe: 'Zehe', zehen: 'Zehen', scheibe: 'Scheibe', scheiben: 'Scheiben', blatt: 'Blatt', 'blätter': 'Blätter', zweig: 'Zweig', zweige: 'Zweige', tropfen: 'Tropfen', stange: 'Stange', stangen: 'Stangen'};
+const SOFT_UNITS = {el: 'EL', tl: 'TL', 'esslöffel': 'EL', 'teelöffel': 'TL', prise: 'Prise', prisen: 'Prisen', msp: 'Msp', messerspitze: 'Msp', schuss: 'Schuss', spritzer: 'Spritzer', handvoll: 'Handvoll', zehe: 'Zehe', zehen: 'Zehen', scheibe: 'Scheibe', scheiben: 'Scheiben', blatt: 'Blatt', 'blätter': 'Blätter', zweig: 'Zweig', zweige: 'Zweige', tropfen: 'Tropfen', stange: 'Stange', stangen: 'Stangen'};
 const COUNT_UNITS = (() => {
   const m = {'stück': 'Stk', stueck: 'Stk', stk: 'Stk', pkg: 'Packung', pck: 'Packung', pkt: 'Packung'};
   for (const u of UNITS) { m[u.toLowerCase()] = u; if (PLURAL[u]) m[PLURAL[u].toLowerCase()] = u; }
   delete m.stange; return m;
 })();
+// Löffel: in Milliliter, damit sie gegen Flaschen (ml) und über „1 EL wiegt“ gegen Pulver (g) rechnen
+const SPOON_ML = {EL: 15, TL: 5};
 const FRACS = {'½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1/3, '⅔': 2/3};
 function parseQty(t){
   if (FRACS[t]) return FRACS[t];
@@ -1591,22 +1743,23 @@ function parseQty(t){
   m = t.match(/^(\d+)\/(\d+)$/); if (m) return m[1] / m[2];
   return parseFloat(t.replace(',', '.'));
 }
-/* Eine Zutatenzeile verstehen: „200 g Mehl“, „2 Eier“, „1 Dose Kokosmilch“, „1 EL Öl“, „Salz“ */
+/* Eine Zutatenzeile verstehen: „200 g Mehl“, „2 Eier“, „1 Dose Kokosmilch“, „1 EL Öl“, „Salz“.
+   EL und TL bleiben „weich“ (fehlen sie im Vorrat, kommen sie nicht auf die Liste), haben aber eine Menge in ml. */
 function parseIngredient(raw){
   const line = String(raw || '').trim().replace(/^[-•*–]\s*/, ''); if (!line) return null;
   const m = line.match(/^((?:\d+\s+)?\d+\/\d+|\d+(?:[.,]\d+)?|[½¼¾⅓⅔])\s*(.*)$/);
-  let qty = null, rest = line, kind = null, unit = null, base = null, amt = null;
+  let qty = null, rest = line, kind = null, unit = null, base = null, amt = null, spoon = false;
   if (m) { qty = parseQty(m[1]); rest = m[2].trim(); }
   const w = rest.match(/^([A-Za-zÄÖÜäöüß]+)\.?\s+(.+)$/);
   if (qty != null && w) {
     const u = w[1].toLowerCase();
     if (MEASURE[u]) { kind = 'measure'; base = MEASURE[u][0]; amt = qty * MEASURE[u][1]; unit = w[1]; rest = w[2]; }
     else if (COUNT_UNITS[u]) { kind = 'count'; unit = COUNT_UNITS[u]; rest = w[2]; }
-    else if (SOFT_UNITS[u]) { kind = 'soft'; unit = SOFT_UNITS[u]; rest = w[2]; }
+    else if (SOFT_UNITS[u]) { kind = 'soft'; unit = SOFT_UNITS[u]; rest = w[2]; if (SPOON_ML[unit]) { spoon = true; base = 'ml'; amt = qty * SPOON_ML[unit]; } }
   }
   if (!kind) kind = qty != null ? 'count' : 'soft';
   const name = rest.replace(/\(.*?\)/g, '').split(',')[0].replace(/\b(etwas|nach geschmack|optional|zum servieren)\b/gi, '').replace(/\s+/g, ' ').trim();
-  return name ? {raw: line, qty, kind, unit, base, amt, name} : null;
+  return name ? {raw: line, qty, kind, unit, base, amt, spoon, name} : null;
 }
 const recipeIngredients = r => String(r.ingredients || '').split('\n').map(parseIngredient).filter(Boolean);
 const stem = s => norm(s).replace(/(en|er|e|n|s)$/, '');
@@ -1626,10 +1779,18 @@ function matchArticle(name){
   const words = n.split(' ').map(stem);
   return arts.find(x => norm(x.name).split(' ').some(w => w.length >= 4 && words.includes(stem(w)))) || null;
 }
-/* Was eine Zutat vom Artikel braucht: Menge (amt), Anzahl (cnt) oder nur „vorhanden“ (any) */
+/* Was eine Zutat vom Artikel braucht: Menge (amt), Anzahl (cnt) oder nur „vorhanden“ (any).
+   Geht eine Menge nicht zu rechnen, sagt why warum: 'size' = Packungsgröße fehlt, 'weight' = Gewicht pro EL fehlt. */
+function amtNeed(ing, a, f){
+  if (!hasSizes(a)) return {metric: 'any', v: 0, why: a.base !== 'Stk' && total(a) > 0 ? 'size' : null};
+  const v = ing.amt * f;
+  if (a.base === ing.base) return {metric: 'amt', v};
+  if (ing.base === 'ml' && a.base === 'g') { const g = elgOf(a); return g ? {metric: 'amt', v: v * g / 15} : {metric: 'any', v: 0, why: 'weight'}; }
+  return {metric: 'any', v: 0};
+}
 function ingNeed(ing, a, f){
-  if (ing.kind === 'soft') return {metric: 'any', v: 0};
-  if (ing.kind === 'measure') return a.base === ing.base && hasSizes(a) ? {metric: 'amt', v: ing.amt * f} : {metric: 'any', v: 0};
+  if (ing.kind === 'soft') return ing.spoon ? amtNeed(ing, a, f) : {metric: 'any', v: 0};
+  if (ing.kind === 'measure') return amtNeed(ing, a, f);
   const q = (ing.qty || 1) * f;
   if ((!ing.unit || ing.unit === 'Stk') && a.base === 'Stk' && hasSizes(a)) return {metric: 'amt', v: q};
   if ((!ing.unit && unitOf(a) === 'Stk') || ing.unit === unitOf(a)) return {metric: 'cnt', v: q};
@@ -1759,7 +1920,7 @@ function cook(planId){
   const e = S.plan[planId], r = e && S.recipes[e.recipeId]; if (!r) return;
   const f = factorOf(e, r), work = {}, before = {};
   for (const ing of recipeIngredients(r)) {
-    if (ing.kind === 'soft') continue;
+    if (ing.kind === 'soft' && !ing.spoon) continue;
     const a0 = matchArticle(ing.name); if (!a0 || total(a0) <= 0) continue;
     if (!before[a0.id]) before[a0.id] = clone(S.articles[a0.id]);
     const a = work[a0.id] || (work[a0.id] = clone(S.articles[a0.id]));
@@ -1819,16 +1980,145 @@ function renderPlan(){
   }
   $('#view').innerHTML = html;
 }
-function renderRecipes(){
-  const list = Object.values(S.recipes).sort((x, y) => x.name.localeCompare(y.name, 'de', {numeric: true}));
-  if (!list.length) { renderPlan(); return; }
-  $('#view').innerHTML = '<div class="list" style="margin-top:16px">' + list.map(r => {
-    const miss = recipeMissing(r);
-    return '<button class="meal" data-recipe="' + r.id + '"><span class="dot' + (miss.length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + fmtNum(r.servings || 1) + ' Portionen, ' + esc(missText(miss)) + '</span></span></button>';
-  }).join('') + '</div>';
+/* Bewertung, Zeiten, Tags.
+   recipes/{id}.ratings = {uid: 1–5}; 0 oder fehlend heißt „nicht bewertet“. Geschrieben wird nur das eigene Feld
+   (ratings.<uid>), damit gleichzeitige Bewertungen sich nicht überschreiben.
+   prepTime, cookTime: Minuten oder null. tags: frei vergebene Wörter; ein Tag gibt es, solange ein Rezept ihn hat. */
+function ratingOf(r){
+  const v = Object.values(r.ratings || {}).filter(x => x > 0);
+  return {n: v.length, avg: v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0};
 }
+function rateRecipe(id, v){
+  const r = S.recipes[id]; if (!r) return;
+  const n = clone(r); n.ratings = {...(n.ratings || {}), [me()]: v};
+  S.recipes[id] = n; localSave();
+  remoteUpdate('recipes', id, {['ratings.' + me()]: v});
+  render();
+}
+const STAR = '<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
+function fmtMinutes(n){
+  if (!(n > 0)) return '';
+  if (n < 60) return n + ' Min.';
+  const h = Math.floor(n / 60), m = n % 60;
+  return h + ' Std.' + (m ? ' ' + m + ' Min.' : '');
+}
+const totalTime = r => (r.prepTime || 0) + (r.cookTime || 0);
+function timeDetail(r){
+  return [r.prepTime ? fmtMinutes(r.prepTime) + ' Arbeit' : '', r.cookTime ? fmtMinutes(r.cookTime) + ' Kochen' : ''].filter(Boolean).join(', ');
+}
+const cleanTag = t => String(t || '').replace(/^#+/, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+// Alle Tags im Haushalt, jeweils in der Schreibweise, in der es ihn zuerst gab
+function allTags(){
+  const m = new Map();
+  for (const r of Object.values(S.recipes)) for (const t of r.tags || []) if (!m.has(norm(t))) m.set(norm(t), t);
+  return [...m.values()].sort((x, y) => x.localeCompare(y, 'de'));
+}
+const hasTag = (r, t) => (r.tags || []).some(x => norm(x) === norm(t));
+const matchTags = (r, sel) => sel.every(t => hasTag(r, t));
+/* Sortieren: A–Z; Bewertung (bester Schnitt zuerst, Unbewertetes am Ende); Zeit (schnellstes zuerst, ohne Zeit am Ende) */
+const RECIPE_SORTS = [['name', 'A–Z'], ['rating', 'Bewertung'], ['time', 'Zeit']];
+function sortRecipes(list, how){
+  const byName = (x, y) => x.name.localeCompare(y.name, 'de', {numeric: true});
+  if (how === 'rating') return list.sort((x, y) => ratingOf(y).avg - ratingOf(x).avg || ratingOf(y).n - ratingOf(x).n || byName(x, y));
+  if (how === 'time') return list.sort((x, y) => (totalTime(x) || Infinity) - (totalTime(y) || Infinity) || byName(x, y));
+  return list.sort(byName);
+}
+function setRecipeSort(how){ UI.recipeSort = how; try { localStorage.setItem(SORT_KEY, how); } catch(e) {} render(); }
+// Chips zum Filtern nach Tags; attr ist das data-Attribut, auf das die jeweilige Ansicht hört
+function tagChipsHTML(sel, attr, style){
+  const tags = allTags(); if (!tags.length) return '';
+  const on = t => sel.some(x => norm(x) === norm(t));
+  return '<div class="chips"' + (style ? ' style="' + style + '"' : '') + ' aria-label="Nach Tags filtern"><button type="button" class="chip" data-' + attr + '="" aria-pressed="' + !sel.length + '">Alle</button>' +
+    tags.map(t => '<button type="button" class="chip" data-' + attr + '="' + esc(t) + '" aria-pressed="' + on(t) + '">' + esc(t) + '</button>').join('') + '</div>';
+}
+function toggleIn(sel, t){
+  if (!t) return [];
+  return sel.some(x => norm(x) === norm(t)) ? sel.filter(x => norm(x) !== norm(t)) : [...sel, t];
+}
+/* Tags für alle Rezepte auf einmal ändern. Geschrieben wird nur das Feld tags, damit gleichzeitige
+   Bewertungen oder Änderungen am Rezepttext nicht überschrieben werden. */
+function setTagsMany(changes){
+  for (const [id, tags] of changes) {
+    if (!S.recipes[id]) continue;
+    const n = clone(S.recipes[id]); n.tags = tags; S.recipes[id] = n;
+    remoteUpdate('recipes', id, {tags});
+  }
+  localSave(); render();
+}
+function dedupeTags(list){ const seen = new Set(); return list.filter(t => { const k = norm(t); if (seen.has(k)) return false; seen.add(k); return true; }); }
+function renameTag(oldT, raw){
+  const neu = cleanTag(raw); if (!neu) return false;
+  if (neu === oldT) return true;
+  const other = norm(neu) !== norm(oldT) && allTags().find(x => norm(x) === norm(neu));
+  const target = other || neu;
+  const hit = Object.values(S.recipes).filter(r => hasTag(r, oldT));
+  const before = hit.map(r => [r.id, [...(r.tags || [])]]);
+  setTagsMany(hit.map(r => [r.id, dedupeTags((r.tags || []).map(t => norm(t) === norm(oldT) ? target : t))]));
+  UI.tagFilter = dedupeTags(UI.tagFilter.map(t => norm(t) === norm(oldT) ? target : t));
+  toast(other ? '„' + oldT + '“ mit „' + target + '“ zusammengeführt' : '„' + oldT + '“ heißt jetzt „' + target + '“', () => setTagsMany(before));
+  return true;
+}
+function deleteTag(t){
+  const hit = Object.values(S.recipes).filter(r => hasTag(r, t));
+  const before = hit.map(r => [r.id, [...(r.tags || [])]]);
+  setTagsMany(hit.map(r => [r.id, (r.tags || []).filter(x => norm(x) !== norm(t))]));
+  UI.tagFilter = UI.tagFilter.filter(x => norm(x) !== norm(t));
+  toast('Tag „' + t + '“ gelöscht', () => setTagsMany(before));
+}
+function openTagManager(){
+  const root = $('#sheetInner');
+  let editing = null, delSure = null;
+  const build = () => {
+    const focusId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : null;
+    if (focusId === 't-edit') return;   // nicht während der Eingabe neu zeichnen
+    const tags = allTags();
+    const count = t => Object.values(S.recipes).filter(r => hasTag(r, t)).length;
+    root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">Tags verwalten</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      '<p class="hint" style="margin:0">Änderungen gelten für alle Rezepte. Heißt ein Tag nach dem Umbenennen wie ein anderer, werden beide zusammengeführt.</p>' +
+      (tags.length ? '<div class="list" style="margin-top:12px">' + tags.map(t => {
+        const n = count(t);
+        if (editing === t) return '<div class="lot tagrow"><input type="text" id="t-edit" value="' + esc(t) + '" autocomplete="off" autocapitalize="none" enterkeyhint="done" aria-label="Neuer Name für ' + esc(t) + '" style="flex:1;min-width:0"><button type="button" class="btn" data-tsave="' + esc(t) + '">Speichern</button><button type="button" class="xbtn" data-tcancel aria-label="Abbrechen">×</button></div>';
+        return '<div class="lot tagrow"><div class="l">' + esc(t) + '<small>' + n + (n === 1 ? ' Rezept' : ' Rezepte') + '</small></div>' +
+          '<button type="button" class="btn ghost" data-tedit="' + esc(t) + '">Umbenennen</button>' +
+          '<button type="button" class="btn danger" data-tdel="' + esc(t) + '">' + (delSure === t ? 'Wirklich?' : 'Löschen') + '</button></div>';
+      }).join('') + '</div>' : '<p class="hint" style="margin-top:12px">Noch keine Tags. Tags vergibst du im Rezept.</p>');
+    root.querySelector('#close').onclick = closeSheet;
+    root.querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => { editing = b.dataset.tedit; delSure = null; build(); const i = root.querySelector('#t-edit'); if (i) { i.focus(); i.select(); } });
+    root.querySelectorAll('[data-tcancel]').forEach(b => b.onclick = () => { editing = null; build(); });
+    const ed = root.querySelector('#t-edit');
+    const save = () => { const t = editing; if (renameTag(t, ed.value)) { editing = null; ed.blur(); build(); } else ed.focus(); };
+    if (ed) ed.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { editing = null; ed.blur(); build(); } });
+    root.querySelectorAll('[data-tsave]').forEach(b => { b.addEventListener('mousedown', e => e.preventDefault()); b.onclick = save; });
+    root.querySelectorAll('[data-tdel]').forEach(b => b.onclick = () => {
+      const t = b.dataset.tdel;
+      if (delSure !== t) { delSure = t; build(); setTimeout(() => { if (delSure === t) { delSure = null; build(); } }, 4000); return; }
+      delSure = null; deleteTag(t); build();
+    });
+  };
+  openSheet(build);
+}
+function renderRecipes(){
+  const all = sortRecipes(Object.values(S.recipes), UI.recipeSort);
+  if (!all.length) { renderPlan(); return; }
+  const tags = allTags();
+  UI.tagFilter = UI.tagFilter.filter(t => tags.some(x => norm(x) === norm(t)));
+  const list = all.filter(r => matchTags(r, UI.tagFilter));
+  let html = '<div class="rtools"><div class="seg mini" role="group" aria-label="Sortieren">' + RECIPE_SORTS.map(([k, l]) => '<button type="button" data-rsort="' + k + '" aria-pressed="' + (UI.recipeSort === k) + '">' + l + '</button>').join('') + '</div>' +
+    (tags.length ? '<button type="button" class="btn quiet" data-act="tags" style="padding:4px 2px">Tags verwalten</button>' : '') + '</div>' +
+    tagChipsHTML(UI.tagFilter, 'tagfilter', 'margin-top:10px');
+  if (!list.length) html += '<div class="emptystate" style="margin-top:28px"><p>Kein Rezept hat ' + (UI.tagFilter.length > 1 ? 'alle diese Tags' : 'diesen Tag') + '.</p><button class="btn ghost" data-tagfilter="">Alle Rezepte zeigen</button></div>';
+  else html += '<div class="list" style="margin-top:' + (tags.length ? 8 : 12) + 'px">' + list.map(r => {
+    const miss = recipeMissing(r), rt = ratingOf(r), tt = totalTime(r);
+    const meta = [rt.n ? fmtNum(Math.round(rt.avg * 10) / 10) + ' ★' : '', tt ? fmtMinutes(tt) : '', fmtNum(r.servings || 1) + ' Portionen', missText(miss)].filter(Boolean).join(', ');
+    return '<button class="meal" data-recipe="' + r.id + '"><span class="dot' + (miss.length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(meta) + '</span>' +
+      ((r.tags || []).length ? '<span class="rtags">' + r.tags.map(t => '<span>' + esc(t) + '</span>').join('') + '</span>' : '') + '</span></button>';
+  }).join('') + '</div>';
+  $('#view').innerHTML = html;
+}
+function toggleTagFilter(t){ UI.tagFilter = toggleIn(UI.tagFilter, t); render(); }
 
 /* Zutaten eines geplanten Gerichts mit dem Stand an seinem Tag */
+const WHY_TEXT = {size: 'Menge ungeprüft, Packungsgröße fehlt', weight: 'Menge ungeprüft, Gewicht pro EL fehlt'};
 function mealPreview(planId){
   const {detail} = planCalc(), d = detail[planId]; if (!d) return null;
   if (!d.lines.length) return '';
@@ -1838,7 +2128,7 @@ function mealPreview(planId){
   const fmtV = (a, metric, v) => metric === 'amt' ? fmtAmount(v, a.base) : qtyUnit(Math.round(v * 100) / 100, unitOf(a));
   let nChk = 0, nBuy = 0;
   const rows = d.lines.map(({ing, a, need, res}) => {
-    const line = (parts, who) => '<div class="ingline"><span>' + esc(scaledText(ing, f)) + '</span><small>' + (who ? esc(who) : '') + parts.map(([t, c]) => '<span class="' + c + '">' + esc(t) + '</span>').join(', ') + '</small></div>';
+    const line = (parts, who, fix) => '<div class="ingline"><span>' + esc(scaledText(ing, f)) + '</span><small>' + (who ? esc(who) : '') + parts.map(([t, c]) => '<span class="' + c + '">' + esc(t) + '</span>').join(', ') + (fix || '') + '</small></div>';
     if (!a) {
       if (ing.kind === 'soft') return line([['nicht im Vorrat erfasst', '']]);
       nBuy++;
@@ -1862,7 +2152,8 @@ function mealPreview(planId){
     if (res.short && res.expired > 1e-9) parts.push(['bis dahin abgelaufen: ' + fmtV(a, need.metric === 'any' ? 'cnt' : need.metric, res.expired), '']);
     if (res.short && onList.has(a.id)) parts.push(['steht auf der Liste', '']);
     if (res.chk > 1e-9) nChk++; if (res.short > 1e-9) nBuy++;
-    return line(parts, norm(a.name) === norm(ing.name) ? '' : a.name + ': ');
+    const fix = need.why ? '<button type="button" class="linkbtn" data-fixart="' + esc(a.id) + '">' + esc(WHY_TEXT[need.why]) + '</button>' : '';
+    return line(parts, norm(a.name) === norm(ing.name) ? '' : a.name + ': ', fix);
   }).join('');
   const sum = nBuy + nChk === 0 ? 'Für ' + dayLabel(e.date) + ' ist alles da.'
     : 'Für ' + dayLabel(e.date) + ': ' + [nChk ? nChk + ' prüfen' : '', nBuy ? nBuy + ' nachkaufen' : ''].filter(Boolean).join(', ') + '.' +
@@ -1895,13 +2186,59 @@ function openRecipe(id, opts){
   let delSure = false, planOpen = false;
   const shell = () => {
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><input id="r-name" placeholder="Name des Gerichts" autocomplete="off" autocapitalize="sentences" aria-label="Name"><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      '<div class="field"><span class="lbl" id="r-rlbl">Deine Bewertung</span><div class="stars" id="r-stars" role="group" aria-labelledby="r-rlbl"></div><div class="hint" id="r-rhint"></div></div>' +
       '<div class="field"><span class="lbl">Portionen</span><div class="stepper" style="display:inline-flex"><button type="button" id="rsMinus" aria-label="weniger">−</button><span id="rsv"></span><button type="button" id="rsPlus" aria-label="mehr">+</button></div></div>' +
+      '<div class="two"><div class="field"><label for="r-prep">Arbeitszeit</label><div class="minrow"><input type="number" inputmode="numeric" min="0" step="1" id="r-prep" placeholder="0"><span>Min.</span></div></div>' +
+        '<div class="field"><label for="r-cook">Kochzeit</label><div class="minrow"><input type="number" inputmode="numeric" min="0" step="1" id="r-cook" placeholder="0"><span>Min.</span></div></div></div>' +
+      '<div class="field"><label for="r-tag">Tags</label><div class="tagchips" id="r-tags"></div><input type="text" id="r-tag" placeholder="Tag hinzufügen, z. B. schnell" autocomplete="off" autocapitalize="none" enterkeyhint="done"><div class="sugg" id="r-tagsugg" aria-label="Vorhandene Tags"></div></div>' +
       '<div class="field"><label for="r-ing">Zutaten, eine pro Zeile</label><textarea id="r-ing" rows="7" placeholder="200 g Mehl&#10;2 Eier&#10;1 Dose Kokosmilch&#10;1 EL Olivenöl&#10;Salz"></textarea><div id="r-prev"></div></div>' +
       '<div class="field"><label for="r-steps">Zubereitung (optional)</label><textarea id="r-steps" rows="5"></textarea></div>' +
       '<div id="r-plan"></div>' +
       '<div class="sheet-foot"><span id="r-left"></span><span class="btnrow">' + (id && !S.wishes[id] ? '<button class="btn quiet" id="r-wish">Wünschen</button>' : '') + (id ? '<button class="btn ghost" id="r-planbtn">Einplanen</button>' : '') + '<button class="btn" id="r-save">Speichern</button></span></div>';
     const nameEl = root.querySelector('#r-name'), ingEl = root.querySelector('#r-ing'), stepsEl = root.querySelector('#r-steps');
     nameEl.value = r.name; ingEl.value = r.ingredients; stepsEl.value = r.steps || '';
+    const prepEl = root.querySelector('#r-prep'), cookEl = root.querySelector('#r-cook');
+    prepEl.value = r.prepTime || ''; cookEl.value = r.cookTime || '';
+    r.tags = [...(r.tags || [])];
+    // Bewertung: gilt sofort (bei neuen Rezepten beim Speichern), nochmal tippen nimmt sie zurück
+    const stars = () => {
+      const live = (id && S.recipes[id]) || r, mine = (live.ratings || {})[me()] || 0;
+      root.querySelector('#r-stars').innerHTML = [1, 2, 3, 4, 5].map(n => '<button type="button" class="star" data-star="' + n + '" aria-pressed="' + (n <= mine) + '" aria-label="' + n + (n === 1 ? ' Stern' : ' Sterne') + '">' + STAR + '</button>').join('');
+      const others = Object.entries(live.ratings || {}).filter(([u, v]) => v > 0 && u !== me()).map(([u, v]) => personName(u) + ' ' + v);
+      const rt = ratingOf(live);
+      root.querySelector('#r-rhint').textContent = rt.n ? 'Schnitt ' + fmtNum(Math.round(rt.avg * 10) / 10) + ' von ' + rt.n + (rt.n === 1 ? ' Bewertung' : ' Bewertungen') + (others.length ? ' (' + others.join(', ') + ')' : '') : 'Noch nicht bewertet.';
+      root.querySelectorAll('[data-star]').forEach(b => b.onclick = () => {
+        const n = +b.dataset.star, cur = ((((id && S.recipes[id]) || r).ratings) || {})[me()] || 0, v = cur === n ? 0 : n;
+        if (id && S.recipes[id]) rateRecipe(id, v); else r.ratings = {...(r.ratings || {}), [me()]: v};
+        stars();
+      });
+    };
+    stars();
+    // Tags: tippen, mit Enter oder Komma übernehmen; vorhandene Tags werden vorgeschlagen
+    const tagEl = root.querySelector('#r-tag'), tagSugg = root.querySelector('#r-tagsugg');
+    const showTags = () => {
+      root.querySelector('#r-tags').innerHTML = r.tags.map(t => '<button type="button" class="chip on" data-deltag="' + esc(t) + '" aria-label="Tag ' + esc(t) + ' entfernen">' + esc(t) + ' <span aria-hidden="true">×</span></button>').join('');
+      root.querySelectorAll('[data-deltag]').forEach(b => b.onclick = () => { r.tags = r.tags.filter(t => t !== b.dataset.deltag); showTags(); });
+    };
+    const suggestTags = () => {
+      if (document.activeElement !== tagEl) { tagSugg.innerHTML = ''; return; }
+      const n = norm(tagEl.value);
+      const list = allTags().filter(t => !hasTag(r, t) && (!n || norm(t).includes(n)));
+      tagSugg.innerHTML = list.map(t => '<button type="button" class="chip" data-addtag="' + esc(t) + '">' + esc(t) + '</button>').join('');
+    };
+    const addTag = raw => {
+      const t0 = cleanTag(raw); if (!t0) return;
+      const t = allTags().find(x => norm(x) === norm(t0)) || t0;
+      if (!hasTag(r, t)) r.tags.push(t);
+      showTags(); suggestTags();
+    };
+    showTags();
+    tagEl.addEventListener('focus', suggestTags);
+    tagEl.addEventListener('input', () => { if (tagEl.value.includes(',')) { tagEl.value.split(',').slice(0, -1).forEach(addTag); tagEl.value = tagEl.value.split(',').pop(); } suggestTags(); });
+    tagEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagEl.value); tagEl.value = ''; suggestTags(); } });
+    tagEl.addEventListener('blur', () => setTimeout(() => { if (tagEl.value.trim()) { addTag(tagEl.value); tagEl.value = ''; } tagSugg.innerHTML = ''; }, 150));
+    tagSugg.addEventListener('mousedown', e => e.preventDefault());
+    tagSugg.addEventListener('click', e => { const b = e.target.closest('[data-addtag]'); if (!b) return; addTag(b.dataset.addtag); tagEl.value = ''; suggestTags(); });
     const sv = () => { root.querySelector('#rsv').textContent = fmtNum(r.servings); };
     const prev = () => { r.ingredients = ingEl.value; root.querySelector('#r-prev').innerHTML = ingPreview(r, 1); };
     sv(); prev();
@@ -1909,7 +2246,16 @@ function openRecipe(id, opts){
     root.querySelector('#rsMinus').onclick = () => { r.servings = Math.max(1, r.servings - 1); sv(); };
     root.querySelector('#rsPlus').onclick = () => { r.servings += 1; sv(); };
     root.querySelector('#close').onclick = closeSheet;
-    const collect = () => { r.name = nameEl.value.trim(); r.ingredients = ingEl.value.trim(); r.steps = stepsEl.value.trim(); };
+    const collect = () => {
+      r.name = nameEl.value.trim(); r.ingredients = ingEl.value.trim(); r.steps = stepsEl.value.trim();
+      const mins = el => { const v = Math.round(num(el.value)); return v > 0 ? v : null; };
+      r.prepTime = mins(prepEl); r.cookTime = mins(cookEl);
+      if (tagEl.value.trim()) { addTag(tagEl.value); tagEl.value = ''; }
+      // Bewertungen der anderen nicht mit einem alten Stand überschreiben
+      const live = id && S.recipes[id];
+      const rt = {...((live || r).ratings || {})}; for (const k of Object.keys(rt)) if (!(rt[k] > 0)) delete rt[k];
+      r.ratings = rt;
+    };
     root.querySelector('#r-save').onclick = () => {
       collect(); if (!r.name) { nameEl.focus(); return; }
       putDoc('recipes', r);
@@ -1947,15 +2293,18 @@ function openRecipe(id, opts){
 }
 function openPicker(date){
   const root = $('#sheetInner');
-  let q = '';
+  let q = '', tf = [];
   const shell = () => {
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">' + esc(dayLabel(date)) + '</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
-      '<input class="search" id="p-q" type="search" placeholder="Rezept suchen" autocomplete="off" aria-label="Rezept suchen"><div id="p-list"></div>' +
+      '<input class="search" id="p-q" type="search" placeholder="Rezept suchen" autocomplete="off" aria-label="Rezept suchen"><div id="p-tags"></div><div id="p-list"></div>' +
       '<div class="sheet-foot"><span></span><button class="btn ghost" id="p-new">Neues Rezept</button></div>';
     const list = () => {
       const n = norm(q);
-      const rs = Object.values(S.recipes).filter(r => !n || norm(r.name).includes(n)).sort((x, y) => x.name.localeCompare(y.name, 'de', {numeric: true}));
-      const wished = wishList().filter(w => !n || norm(S.recipes[w.recipeId].name).includes(n));
+      const fit = r => (!n || norm(r.name).includes(n)) && matchTags(r, tf);
+      const rs = Object.values(S.recipes).filter(fit).sort((x, y) => x.name.localeCompare(y.name, 'de', {numeric: true}));
+      const wished = wishList().filter(w => fit(S.recipes[w.recipeId]));
+      root.querySelector('#p-tags').innerHTML = tagChipsHTML(tf, 'ptag', 'margin-top:8px');
+      root.querySelectorAll('[data-ptag]').forEach(b => b.onclick = () => { tf = toggleIn(tf, b.dataset.ptag); list(); });
       const row = (r, extra) => {
         const miss = recipeMissing(r);
         return '<button class="meal" data-pickrecipe="' + r.id + '"><span class="dot' + (miss.length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc((extra ? extra + ', ' : '') + missText(miss)) + '</span></span></button>';
@@ -1963,7 +2312,7 @@ function openPicker(date){
       const votes = w => { const sc = wishScore(w); return (sc > 0 ? '+' : '') + sc + (Math.abs(sc) === 1 ? ' Stimme' : ' Stimmen'); };
       root.querySelector('#p-list').innerHTML = rs.length ?
         (wished.length ? '<h3 class="weekhead" style="margin-top:14px;border:0;padding:0">Wunschliste</h3><div class="list" style="margin-top:6px">' + wished.map(w => row(S.recipes[w.recipeId], votes(w))).join('') + '</div><h3 class="weekhead" style="margin-top:14px;border:0;padding:0">Alle Rezepte</h3>' : '') +
-        '<div class="list" style="margin-top:' + (wished.length ? 6 : 12) + 'px">' + rs.map(r => row(r, S.wishes[r.id] ? 'gewünscht' : '')).join('') + '</div>' : '<p class="hint" style="margin-top:12px">Kein Rezept gefunden.</p>';
+        '<div class="list" style="margin-top:' + (wished.length ? 6 : 12) + 'px">' + rs.map(r => row(r, S.wishes[r.id] ? 'gewünscht' : '')).join('') + '</div>' : '<p class="hint" style="margin-top:12px">' + (tf.length ? 'Kein Rezept passt zu ' + (q ? 'Suche und Tags' : (tf.length > 1 ? 'allen diesen Tags' : 'diesem Tag')) + '.' : 'Kein Rezept gefunden.') + '</p>';
       root.querySelectorAll('[data-pickrecipe]').forEach(b => b.onclick = () => { closeSheet(); planRecipe(b.dataset.pickrecipe, date); });
     };
     list();
@@ -1981,7 +2330,7 @@ function openMeal(planId){
     if (!r) { closeSheet(); return; }
     const f = factorOf(e, r);
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">' + esc(r.name) + '</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
-      '<p class="hint" style="margin:0">' + esc(dayLabel(e.date)) + (e.cooked ? ', gekocht' : '') + '</p>' +
+      '<p class="hint" style="margin:0">' + esc(dayLabel(e.date)) + (e.cooked ? ', gekocht' : '') + (timeDetail(r) ? '<br>' + esc(timeDetail(r)) : '') + '</p>' +
       '<div class="field"><span class="lbl">Portionen</span><div class="stepper" style="display:inline-flex"><button type="button" id="msMinus" aria-label="weniger">−</button><span>' + fmtNum(e.servings || r.servings || 1) + '</span><button type="button" id="msPlus" aria-label="mehr">+</button></div></div>' +
       '<div class="field"><span class="lbl">Zutaten</span>' + (((e.cooked ? null : mealPreview(planId)) ?? ingPreview(r, f)) || '<p class="hint">Noch keine Zutaten eingetragen.</p>') + '</div>' +
       (r.steps ? '<div class="field"><span class="lbl">Zubereitung</span><p class="steps">' + esc(r.steps) + '</p></div>' : '') +
@@ -2093,17 +2442,19 @@ function openWish(id){
 }
 function openWishPicker(){
   const root = $('#sheetInner');
-  let q = '';
+  let q = '', tf = [];
   const shell = () => {
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">Gericht wünschen</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
       '<p class="hint" style="margin:0">Gerichte, die schon auf der Liste stehen, fehlen hier. Für die kannst du in der Liste abstimmen.</p>' +
-      '<input class="search" id="wp-q" type="search" placeholder="Rezept suchen" autocomplete="off" aria-label="Rezept suchen"><div id="wp-list"></div>' +
+      '<input class="search" id="wp-q" type="search" placeholder="Rezept suchen" autocomplete="off" aria-label="Rezept suchen"><div id="wp-tags"></div><div id="wp-list"></div>' +
       '<div class="sheet-foot"><span></span><button class="btn ghost" id="wp-new">Neues Rezept</button></div>';
     const list = () => {
       const n = norm(q);
-      const rs = Object.values(S.recipes).filter(r => !S.wishes[r.id] && (!n || norm(r.name).includes(n))).sort((x, y) => x.name.localeCompare(y.name, 'de', {numeric: true}));
+      const rs = Object.values(S.recipes).filter(r => !S.wishes[r.id] && (!n || norm(r.name).includes(n)) && matchTags(r, tf)).sort((x, y) => x.name.localeCompare(y.name, 'de', {numeric: true}));
+      root.querySelector('#wp-tags').innerHTML = tagChipsHTML(tf, 'wtag', 'margin-top:8px');
+      root.querySelectorAll('[data-wtag]').forEach(b => b.onclick = () => { tf = toggleIn(tf, b.dataset.wtag); list(); });
       root.querySelector('#wp-list').innerHTML = rs.length ? '<div class="list" style="margin-top:12px">' + rs.map(r => '<button class="meal" data-wishpick="' + r.id + '"><span class="dot' + (recipeMissing(r).length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(missText(recipeMissing(r))) + '</span></span></button>').join('') + '</div>'
-        : '<p class="hint" style="margin-top:12px">' + (n ? 'Kein Rezept gefunden.' : 'Alle Rezepte stehen schon auf der Wunschliste.') + '</p>';
+        : '<p class="hint" style="margin-top:12px">' + (n || tf.length ? 'Kein Rezept gefunden.' : 'Alle Rezepte stehen schon auf der Wunschliste.') + '</p>';
       root.querySelectorAll('[data-wishpick]').forEach(b => b.onclick = () => { if (addWish(b.dataset.wishpick)) closeSheet(); });
     };
     list();
@@ -2494,10 +2845,12 @@ document.querySelector('.tabs').addEventListener('click', e => {
   goTab(t.dataset.tab, TABS.indexOf(t.dataset.tab) - TABS.indexOf(UI.tab));
 });
 const TABS = [...document.querySelectorAll('.tab')].map(t => t.dataset.tab);
+const COOK_VIEWS = ['plan', 'wishes', 'recipes'];
+function slideIn(dir){ const v = $('#view'); v.classList.remove('in-l', 'in-r'); void v.offsetWidth; if (dir) v.classList.add(dir > 0 ? 'in-r' : 'in-l'); }
 function goTab(tab, dir){
   if (!tab || tab === UI.tab) return;
   UI.tab = tab; window.scrollTo(0, 0); render();
-  const v = $('#view'); v.classList.remove('in-l', 'in-r'); void v.offsetWidth; if (dir) v.classList.add(dir > 0 ? 'in-r' : 'in-l');
+  slideIn(dir);
 }
 (() => {
   let t0 = null;
@@ -2516,8 +2869,17 @@ function goTab(tab, dir){
     const p = e.changedTouches[0], dx = p.clientX - t0.x, dy = p.clientY - t0.y, dt = Date.now() - t0.t;
     t0 = null;
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8 || dt > 700) return;
-    const i = TABS.indexOf(UI.tab) + (dx < 0 ? 1 : -1);
-    if (i >= 0 && i < TABS.length) goTab(TABS[i], dx < 0 ? 1 : -1);
+    const dir = dx < 0 ? 1 : -1;
+    // In „Kochen“ zuerst zwischen Wochenplan, Wünschen und Rezepten, erst am Rand in den nächsten Bereich
+    if (UI.tab === 'cook') {
+      const j = COOK_VIEWS.indexOf(UI.cookView) + dir;
+      if (j >= 0 && j < COOK_VIEWS.length) { UI.cookView = COOK_VIEWS[j]; window.scrollTo(0, 0); render(); slideIn(dir); return; }
+    }
+    const i = TABS.indexOf(UI.tab) + dir;
+    if (i < 0 || i >= TABS.length) return;
+    // Von links kommend beim Wochenplan landen, von rechts kommend bei den Rezepten
+    if (TABS[i] === 'cook') UI.cookView = dir > 0 ? COOK_VIEWS[0] : COOK_VIEWS[COOK_VIEWS.length - 1];
+    goTab(TABS[i], dir);
   }, {passive: true});
 })();
 $('#fab').onclick = () => UI.tab !== 'cook' ? openNew() : UI.cookView === 'wishes' ? (myWishes().length >= WISH_MAX ? toast('Du hast schon ' + WISH_MAX + ' Wünsche. Nimm zuerst einen herunter.') : openWishPicker()) : openRecipe(null);
@@ -2542,11 +2904,18 @@ document.addEventListener('pointerdown', e => {
 document.addEventListener('pointermove', e => { if (HOLD.el && Math.hypot(e.clientX - HOLD.x, e.clientY - HOLD.y) > 10) holdCancel(); });
 ['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, () => { if (HOLD.timer) holdCancel(); }));
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-use]')) e.preventDefault(); });
+// Im Gericht: „Menge ungeprüft …“ öffnet den Artikel, dort steht „Für Rezepte“
+$('#sheetInner').addEventListener('click', e => { const b = e.target.closest('[data-fixart]'); if (b && S.articles[b.dataset.fixart]) openEdit(b.dataset.fixart); });
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-use],[data-refill],[data-open],[data-filter],[data-act],[data-toggle],[data-qty],[data-remove],[data-cookview],[data-meal],[data-addmeal],[data-recipe],[data-vote],[data-wish]');
+  const el = e.target.closest('[data-use],[data-refill],[data-open],[data-filter],[data-act],[data-toggle],[data-qty],[data-remove],[data-cookview],[data-meal],[data-addmeal],[data-recipe],[data-vote],[data-wish],[data-togglecat],[data-tagfilter],[data-rsort]');
   if (!el || el.closest('#sheet')) return;
   if (HOLD.fired && el.dataset.use === HOLD.fired && Date.now() - HOLD.at < 1500) { HOLD.fired = null; return; }   // war ein langes Drücken
   const d = el.dataset;
+  // Leerer Wert ist hier gültig: „Ohne Kategorie“ bzw. „Alle“
+  if ('togglecat' in d) { toggleCat(d.togglecat); return; }
+  if ('tagfilter' in d) { toggleTagFilter(d.tagfilter); return; }
+  if (d.rsort) { setRecipeSort(d.rsort); return; }
+  if (d.act === 'tags') { openTagManager(); return; }
   if (d.use) consumeOne(d.use);
   else if (d.refill) { const a = clone(S.articles[d.refill]); addStock(a, a.buy || 1); putArticle(a); toast(a.name + ': ' + fmtNum(a.buy || 1) + ' dazu'); }
   else if (d.open) openEdit(d.open);
