@@ -59,13 +59,13 @@ with sync_playwright() as p:
     # 5 Einplanen aus der Wunschliste
     pg.click('[data-wish=r2]'); pg.wait_for_timeout(300); pg.screenshot(path=os.path.join(HERE,'w4.png'))
     pg.click('[data-planday="%s"]'%D(5)); pg.wait_for_timeout(400)
-    print('5 Wunsch r2 im Store:', pg.evaluate("FAKE.store.has('households/h1/wishes/r2')"), '| Plan:', pg.evaluate("JSON.stringify(Object.values(S.plan).filter(e=>e.recipeId==='r2').map(e=>e.date))"), '|', pg.inner_text('#snackMsg'))
+    print('5 Wunsch r2 im Store gelöscht markiert:', pg.evaluate("!!(FAKE.get('households/h1/wishes/r2')||{})._del"), '| Plan:', pg.evaluate("JSON.stringify(Object.values(S.plan).filter(e=>e.recipeId==='r2').map(e=>e.date))"), '|', pg.inner_text('#snackMsg'))
     # 6 Neu laden: kein zweites Aufräumen, Lesezugriffe
     pg.reload(); pg.wait_for_function('R.active===true'); pg.wait_for_timeout(500)
     print('6 nach Reload Lesezugriffe:', pg.evaluate('FAKE.reads()'), '| Schreibvorgänge:', pg.evaluate('FAKE.writes.length'))
     # 7 Speicher voll
     pg.evaluate("""(()=>{const o=Storage.prototype.setItem; Storage.prototype.setItem=function(k,v){ if(k==='haushoed:cache' && v.length>window.LIM) { const e=new Error('quota'); e.name='QuotaExceededError'; throw e;} return o.call(this,k,v); };})()""")
-    full=pg.evaluate("JSON.stringify(S).length"); nolog=pg.evaluate("JSON.stringify({...S,log:{}}).length"); print('7 Größen', full, nolog)
+    full=pg.evaluate("JSON.stringify({...S,_sync:SYNC}).length"); nolog=pg.evaluate("JSON.stringify({...S,log:{},_sync:SYNC}).length"); print('7 Größen', full, nolog)
     pg.evaluate("window.LIM=%d"%((full+nolog)//2)); pg.evaluate("localSave()"); pg.wait_for_timeout(400)
     print('7a Zustand:', pg.evaluate('STORE.state'), '|', pg.inner_text('#snackMsg'))
     pg.evaluate("window.LIM=10"); pg.evaluate("localSave()"); pg.wait_for_timeout(400)

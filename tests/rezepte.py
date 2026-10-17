@@ -51,7 +51,7 @@ with sync_playwright() as p:
     print('3 Filter Süß:', pg.eval_on_selector_all('.meal .name', 'e=>e.map(x=>x.innerText)'))
     pg.click('[data-tagfilter="Fleisch"]'); pg.wait_for_timeout(150)
     print('3 Süß + Fleisch:', pg.inner_text('#view').replace('\n',' | '))
-    pg.click('#view .emptystate [data-tagfilter=""]'); pg.wait_for_timeout(150)
+    pg.click('#view .emptystate [data-act=rclear]'); pg.wait_for_timeout(150)
     # 4 Rezept bearbeiten: Bewertung, Zeiten, Tags
     pg.click('[data-recipe=r3]'); pg.wait_for_timeout(300)
     pg.click('[data-star="5"]'); pg.wait_for_timeout(150)
@@ -82,7 +82,7 @@ with sync_playwright() as p:
     print('5 gemerkt:', pg.evaluate("localStorage.getItem('haushoed:recipeSort')"))
     pg.screenshot(path=os.path.join(HERE,'r4.png'))
     # 6 Tags verwalten
-    pg.click('[data-act=tags]'); pg.wait_for_timeout(250)
+    pg.click('[data-act=rfilter]'); pg.wait_for_timeout(250); pg.click('#rf-tags'); pg.wait_for_timeout(250)
     print('6 Liste:', pg.eval_on_selector_all('#sheet .lot .l', 'e=>e.map(x=>x.innerText.replace(/\\n/g," "))'))
     pg.click('[data-tedit="Mehlspeise"]'); pg.fill('#t-edit','Süß'); pg.keyboard.press('Enter'); pg.wait_for_timeout(200)
     print('6 zusammengeführt:', pg.evaluate("JSON.stringify(S.recipes.r3.tags)"), '| Meldung:', pg.inner_text('#snackMsg'), '| Schreibart:', pg.evaluate("JSON.stringify(FAKE.writes.slice(-1))"))

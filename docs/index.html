@@ -93,9 +93,21 @@ main{padding-bottom:150px;overflow-x:hidden;overflow-x:clip}
 .tagchips{display:flex;flex-wrap:wrap;gap:6px}
 .tagchips:not(:empty){margin-bottom:8px}
 .chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.kid .tabs{display:none}
+.kidings{margin:4px 0 0;padding-left:20px;font-size:16px;line-height:1.6}
+.lot.member{padding:8px 12px}
+.rngrow{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+.rngrow span{color:var(--muted);font-size:14px;flex:none}
+.field .rngrow input[type=number]{width:84px;flex:none;padding:8px 10px}
+.field .rngrow select{width:auto;flex:none;padding:8px 6px}
+.lot.tagrow .rngrow{flex:none}
+.fsum{margin:8px 2px 0}
+.linkbtn.inl{display:inline;margin:0 0 0 4px;padding:0;text-align:left}
+.btn.quiet.on{color:var(--ink);font-weight:700}
+.chip.saved{border-style:dashed}
 .rtools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
 .rtools .seg{flex:0 1 auto}
-.rtools .seg.mini button{padding:7px 12px;font-size:14px}
+.rtools .seg.mini button{padding:7px 10px;font-size:14px;white-space:nowrap}
 .lot.tagrow{padding:8px 12px}
 .tagrow .btn{padding:8px 12px;font-size:14px}
 .rtags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -125,6 +137,10 @@ main{padding-bottom:150px;overflow-x:hidden;overflow-x:clip}
 .qbtn.hold{box-shadow:0 0 0 5px var(--herb-soft),0 0 0 7px var(--herb);transition:box-shadow .45s ease-in}
 .qbtn.openable{border-style:dashed}
 .qbtn.add{border-color:var(--herb);color:var(--herb)}
+.qrow{padding:8px 12px;gap:8px}
+.qrow .btn{padding:8px 12px;font-size:14px}
+.qbtn.flag{width:auto;min-width:64px;padding:0 12px;border-radius:999px;font-size:14px;font-weight:600;color:var(--muted)}
+.qbtn.flag.low{border-color:var(--mustard);color:var(--mustard)}
 
 .notice{margin-top:16px;padding:12px 14px;border-radius:var(--radius-m);background:var(--mustard-soft);color:var(--ink);font-size:15px}
 .emptystate{margin:48px 8px;text-align:left}
@@ -354,7 +370,7 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
   import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
-  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, arrayUnion, writeBatch } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
+  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, arrayUnion, writeBatch, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
   const firebaseConfig = {
     apiKey: "AIzaSyAeIU7ASyz6e85USwtq7wfNXNxhyZOk398",
     authDomain: "haushoed.firebaseapp.com",
@@ -366,7 +382,7 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
-  window.HFB = { auth, db, signInAnonymously, onAuthStateChanged, signOut, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, arrayUnion, writeBatch };
+  window.HFB = { auth, db, signInAnonymously, onAuthStateChanged, signOut, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, where, arrayUnion, writeBatch, serverTimestamp, Timestamp };
   window.dispatchEvent(new Event('hfb-ready'));
 </script>
 <script>
@@ -596,7 +612,7 @@ const elgOf = a => a.elg > 0 ? a.elg : elTable(a.name);
 /* ============ Zustand ============ */
 let S = {articles:{}, shopping:{}, log:{}, recipes:{}, plan:{}, wishes:{}, meta:clone(DEFAULT_META)};
 const COLS = ['articles','shopping','log','recipes','plan','wishes'];
-const UI = {tab:'stock', q:'', filter:'all', sheet:null, cookView:'plan', tagFilter: [], collapsed: new Set()};
+const UI = {tab:'stock', q:'', filter:'all', sheet:null, cookView:'plan', tagFilter: [], rf: {rate: {}, prep: {lo: null, hi: null}, cook: {lo: null, hi: null}}, collapsed: new Set()};
 // Zugeklappte Kategorien im Vorrat: pro Gerät, jede Person klappt für sich
 const COLLAPSE_KEY = 'haushoed:collapsed';
 try { UI.collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || []); } catch(e) {}
@@ -612,10 +628,19 @@ function toggleCat(c){
 /* ============ Speicher-Schicht ============
    Nur dieser Abschnitt weiß, WO die Daten liegen: Firestore (Haushalt) plus Zwischenspeicher im Browser. */
 const LS_KEY = 'haushoed:cache';
+/* Abgleich nur der Änderungen. Jeder Schreibvorgang setzt updated auf die Serverzeit (nicht die Uhr des Handys,
+   die falsch gehen kann). SYNC merkt sich pro Sammlung den neuesten Zeitstempel, den dieses Gerät vom Server
+   gesehen hat; beim Start wird nur gelesen, was ab da geändert wurde. SYNC liegt im selben Zwischenspeicher wie
+   die Daten: Fehlt der Zwischenspeicher, fehlt auch SYNC, und es wird alles gelesen.
+   Gelöschtes bleibt als Markierung {_del: true} stehen, damit andere Geräte davon erfahren; nach TOMB_KEEP wird
+   es beim vollständigen Abgleich endgültig gelöscht. Alle FULL_EVERY liest jedes Gerät einmal alles, als Netz für
+   Sonderfälle (etwa ein Gerät mit alter App-Version, das noch ohne Zeitstempel schreibt). */
+let SYNC = null;   // {hid, full: ms (Uhr dieses Geräts), since: {Sammlung: ms (Serverzeit)}}
+const FULL_EVERY = 3 * 864e5, TOMB_KEEP = 30 * 864e5;
 function localLoad(){
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) { const d = JSON.parse(raw); S = {articles:d.articles||{}, shopping:d.shopping||{}, log:d.log||{}, recipes:d.recipes||{}, plan:d.plan||{}, wishes:d.wishes||{}, meta:{...clone(DEFAULT_META), ...(d.meta||{})}}; }
+    if (raw) { const d = JSON.parse(raw); S = {articles:d.articles||{}, shopping:d.shopping||{}, log:d.log||{}, recipes:d.recipes||{}, plan:d.plan||{}, wishes:d.wishes||{}, meta:{...clone(DEFAULT_META), ...(d.meta||{})}}; SYNC = d._sync || null; }
   } catch(e) {}
 }
 let saveTimer;
@@ -627,9 +652,11 @@ function localSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     let st = 'ok';
-    try { localStorage.setItem(LS_KEY, JSON.stringify(S)); }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({...S, _sync: SYNC})); }
     catch(e) {
-      try { localStorage.setItem(LS_KEY, JSON.stringify({...S, log: {}})); st = 'partial'; }
+      // Ohne Verlauf gespeichert: der Verlauf muss beim nächsten Start vollständig gelesen werden
+      const sy = SYNC && {...SYNC, since: {...SYNC.since}}; if (sy) delete sy.since.log;
+      try { localStorage.setItem(LS_KEY, JSON.stringify({...S, log: {}, _sync: sy})); st = 'partial'; }
       catch(e2) { try { localStorage.removeItem(LS_KEY); } catch(e3) {} st = 'full'; }
     }
     if (st === STORE.state) return;
@@ -657,27 +684,49 @@ async function remoteError(e, op){
   else if (code === 'resource-exhausted') toast('Das Tageslimit von Firebase ist erreicht. Ab etwa 9 Uhr früh geht es wieder.');
   console.warn('Speichern fehlgeschlagen', e);
 }
-function remotePut(col, id, data){ if (!R.active) return; const ref = R.home.collection(col).doc(id); const body = clone(data); schedule(col+'/'+id, () => ref.set(body)); }
-function remoteDel(col, id){ if (!R.active) return; const ref = R.home.collection(col).doc(id); schedule(col+'/'+id, () => ref.delete()); }
+const stamp = () => window.HFB.serverTimestamp();
+function remotePut(col, id, data){ if (!R.active) return; const ref = R.home.collection(col).doc(id); const body = clone(data); delete body._del; schedule(col+'/'+id, () => ref.set({...body, updated: stamp()})); }
+// Nicht wirklich löschen, sondern markieren: so erfahren auch Geräte davon, die nur Änderungen abholen
+function remoteDel(col, id){ if (!R.active) return; const ref = R.home.collection(col).doc(id); schedule(col+'/'+id, () => ref.set({id, _del: true, updated: stamp()})); }
 function remoteUpdate(col, id, fields){
   if (!R.active) return;
   const ref = R.home.collection(col).doc(id);
   schedule(col+'/'+id+'#u'+Object.keys(fields).join(','), async () => {
-    try { await ref.update(fields); }
-    catch(e) { if (e && e.code === 'not-found' && S[col][id]) await ref.set(clone(S[col][id])); else throw e; }
+    try { await ref.update({...fields, updated: stamp()}); }
+    catch(e) { if (e && e.code === 'not-found' && S[col][id]) await ref.set({...clone(S[col][id]), updated: stamp()}); else throw e; }
   });
 }
+// Endgültig löschen: nur für alte Lösch-Markierungen
+function remotePurge(col, id){ if (!R.active) return; const ref = R.home.collection(col).doc(id); schedule(col+'/'+id+'#purge', () => ref.delete()); }
 function remoteMeta(){ if (!R.active) return; const body = clone(S.meta); schedule('meta', () => R.home.set(body)); }
 
-function fromSnap(qs){ const o = {}; qs.docs.forEach(d => { o[d.id] = clone(d.data()); }); return o; }
-function mergeSnap(col, qs){
-  const next = fromSnap(qs);
-  for (const key of new Set([...pending.keys(), ...running])) {
-    if (!key.startsWith(col + '/')) continue;
-    const k = key.slice(col.length + 1).split('#')[0];
-    if (S[col][k]) next[k] = S[col][k]; else delete next[k];
+// Dokumente, die dieses Gerät gerade selbst schreibt: deren lokaler Stand gilt
+function busyIds(col){
+  const ids = new Set();
+  for (const key of new Set([...pending.keys(), ...running])) if (key.startsWith(col + '/')) ids.add(key.slice(col.length + 1).split('#')[0]);
+  return ids;
+}
+/* Einen Stand vom Server einarbeiten. replace = vollständiger Stand der Sammlung (was fehlt, ist weg),
+   sonst nur dazumischen (Änderungen seit dem letzten Abgleich). Eigene, noch nicht bestätigte Schreibvorgänge
+   gelten vor dem Server. Nur Stände direkt vom Server (nicht aus dem Gerätespeicher) rücken SYNC weiter. */
+function applySnap(col, sn, replace){
+  const busy = busyIds(col);
+  const next = replace ? {} : {...S[col]};
+  if (replace) for (const k of busy) if (S[col][k]) next[k] = S[col][k];
+  let max = SYNC && SYNC.since[col] != null ? SYNC.since[col] : null;
+  for (const d of sn.docs) {
+    if (d.pending || busy.has(d.id)) continue;
+    const o = d.data();
+    if (!sn.fromCache && typeof o.updated === 'number') max = Math.max(max || 0, o.updated);
+    if (o._del) {
+      delete next[d.id];
+      if (replace && !sn.fromCache && typeof o.updated === 'number' && Date.now() - o.updated > TOMB_KEEP) remotePurge(col, d.id);
+      continue;
+    }
+    next[d.id] = clone(o);
   }
   S[col] = next;
+  if (!sn.fromCache && SYNC) SYNC.since[col] = max || 0;
 }
 /* Firestore-Anbindung: bildet die bisherige Schnittstelle (doc/collection/get/set/onSnapshot) nach,
    damit der Rest der App unverändert bleibt. Ein Haushalt = households/{hid}, Einstellungen im Feld „meta“. */
@@ -685,17 +734,22 @@ const HH = {id: null, data: null};
 const waitFirebase = () => new Promise(res => window.HFB ? res() : window.addEventListener('hfb-ready', res, {once: true}));
 function fsHome(F, hid){
   const hdoc = F.doc(F.db, 'households', hid);
-  const wrapQS = qs => ({empty: qs.empty, fromCache: qs.metadata.fromCache, docs: qs.docs.map(d => ({id: d.id, data: () => d.data()}))});
+  // Serverzeit als Millisekunden; Dokumente mit noch ausstehenden eigenen Schreibvorgängen werden markiert
+  const plain = o => { if (o && o.updated && typeof o.updated.toMillis === 'function') o.updated = o.updated.toMillis(); return o; };
+  const wrapQS = qs => ({empty: qs.empty, fromCache: qs.metadata.fromCache, docs: qs.docs.map(d => ({id: d.id, pending: !!d.metadata.hasPendingWrites, data: () => plain(d.data())}))});
   const wrapH = sn => { const d = sn.exists() ? sn.data() : null; HH.data = d; return {exists: !!(d && d.meta), fromCache: sn.metadata.fromCache, data: () => d.meta}; };
   return {
     get: async () => wrapH(await F.getDoc(hdoc)),
     set: meta => F.updateDoc(hdoc, {meta}),
+    update: fields => F.updateDoc(hdoc, fields),
     onSnapshot: (cb, err) => F.onSnapshot(hdoc, sn => { cb(wrapH(sn)); render(); }, err),
     collection: c => {
       const col = F.collection(hdoc, c);
       return {
         get: async () => wrapQS(await F.getDocs(col)),
         onSnapshot: (cb, err) => F.onSnapshot(col, qs => cb(wrapQS(qs)), err),
+        // since = null: die ganze Sammlung; sonst nur, was ab dieser Serverzeit geschrieben wurde
+        listen: (since, cb, err) => F.onSnapshot(since == null ? col : F.query(col, F.where('updated', '>=', F.Timestamp.fromMillis(since))), qs => cb(wrapQS(qs)), err),
         doc: id => ({set: body => F.setDoc(F.doc(col, id), body), update: body => F.updateDoc(F.doc(col, id), body), delete: () => F.deleteDoc(F.doc(col, id))})
       };
     }
@@ -741,12 +795,25 @@ async function renewCode(){
     catch(e) { if (!(e && e.code === 'permission-denied')) { toast('Code konnte nicht erneuert werden'); return; } }
   }
 }
-/* Start: Jede Sammlung wird genau einmal gelesen, über ihre Live-Verbindung. Bis alle ihren ersten Stand
-   geliefert haben, wird nur der jeweils neueste Stand gemerkt; danach laufen Änderungen normal ein. */
+/* Start: Jede Sammlung bekommt eine Live-Verbindung. Ist der Zwischenspeicher aktuell (selber Haushalt, letzter
+   vollständiger Abgleich jünger als FULL_EVERY), holt sie nur die Änderungen seit SYNC.since, sonst alles.
+   Bis alle ihren ersten Stand geliefert haben, wird nur der jeweils neueste gemerkt; danach laufen Änderungen
+   über dieselben Verbindungen ein (jede Änderung kostet einen Lesezugriff). */
 async function startHousehold(F, hid){
   HH.id = hid;
   const home = fsHome(F, hid);
   R.home = home;
+  const fresh = !!(SYNC && SYNC.hid === hid && SYNC.since && Date.now() - (SYNC.full || 0) < FULL_EVERY);
+  if (!fresh) SYNC = {hid, full: null, since: {}};
+  const mode = {}, replaced = {};
+  for (const c of COLS) mode[c] = fresh && SYNC.since[c] != null ? 'delta' : 'full';
+  R.syncMode = mode;
+  const take = (c, sn) => {
+    const rep = mode[c] === 'full' && !replaced[c] && !sn.fromCache;
+    applySnap(c, sn, rep);
+    if (rep) replaced[c] = true;
+    if (!fresh && !SYNC.full && COLS.every(k => replaced[k])) SYNC.full = Date.now();
+  };
   const first = {}, need = ['home', ...COLS];
   let inited = false, ok, fail;
   const ready = new Promise((res, rej) => { ok = res; fail = rej; });
@@ -760,22 +827,25 @@ async function startHousehold(F, hid){
     if (!inited) { first.home = sn; check(); return; }
     if (sn.exists && !pending.has('meta') && !running.has('meta')) { S.meta = {...clone(DEFAULT_META), ...clone(sn.data())}; localSave(); render(); }
   }, onErr);
-  for (const c of COLS) home.collection(c).onSnapshot(sn => {
+  for (const c of COLS) home.collection(c).listen(mode[c] === 'delta' ? SYNC.since[c] : null, sn => {
     if (!inited) { first[c] = sn; check(); return; }
-    mergeSnap(c, sn); localSave(); render();
+    take(c, sn); localSave(); render();
   }, onErr);
   await ready;
   const hs = first.home, snaps = COLS.map(c => first[c]);
   R.active = true;
   // Nur hochladen, wenn der Server selbst „leer“ gesagt hat, nicht ein leerer Zwischenspeicher
-  const remoteEmpty = !hs.exists && snaps.every(x => x.empty) && ![hs, ...snaps].some(x => x.fromCache);
+  // (und nur beim vollständigen Abgleich: ein leerer Änderungs-Stand ist ja der Normalfall)
+  const remoteEmpty = !fresh && !hs.exists && snaps.every(x => x.empty) && ![hs, ...snaps].some(x => x.fromCache);
   const localHas = Object.keys(S.articles).length + Object.keys(S.shopping).length + Object.keys(S.recipes).length > 0;
   if (remoteEmpty && localHas) {
     remoteMeta();
-    for (const c of COLS) for (const [k, v] of Object.entries(S[c])) remotePut(c, k, v);
+    for (const c of COLS) { for (const [k, v] of Object.entries(S[c])) remotePut(c, k, v); SYNC.since[c] = 0; replaced[c] = true; }
+    SYNC.full = Date.now();
+    localSave();
   } else {
     if (hs.exists) S.meta = {...clone(DEFAULT_META), ...clone(hs.data())};
-    COLS.forEach((c, i) => { S[c] = fromSnap(snaps[i]); });
+    COLS.forEach((c, i) => take(c, snaps[i]));
     localSave();
     migrate();
   }
@@ -934,11 +1004,18 @@ const total = a => (a.lots || []).reduce((s, l) => s + l.qty, 0);
 const hasSizes = a => !!a.base && (a.lots || []).length > 0 && a.lots.every(l => l.size > 0);
 const amount = a => (a.lots || []).reduce((s, l) => s + l.qty * (l.size || 0), 0);
 const minValue = a => a.minAmt || a.min || 0;
-const hasMin = a => minValue(a) > 0;
-const belowMin = a => hasMin(a) && (a.minAmt ? amount(a) : total(a)) < minValue(a) - 1e-9;
+/* Zählart „flag“ (nur melden, wenn's ausgeht): nichts wird abgehakt. Ein Artikel ist da (genau ein Lot mit qty 1,
+   das die Daten von Einkauf und Haltbarkeit trägt), wird knapp (a.low, Lot bleibt) oder ist aus (keine Lots).
+   Knapp und aus kommen von selbst auf die Einkaufsliste; Einräumen macht ihn wieder „da“. Rezepte prüfen nur,
+   ob er da ist, und ziehen nichts ab. */
+const isFlag = a => a.mode === 'flag';
+const flagState = a => total(a) <= 0 ? 'out' : a.low ? 'low' : 'ok';
+const hasMin = a => isFlag(a) || minValue(a) > 0;
+const belowMin = a => isFlag(a) ? flagState(a) !== 'ok' : hasMin(a) && (a.minAmt ? amount(a) : total(a)) < minValue(a) - 1e-9;
 const needsBuy = a => belowMin(a) && !a.snoozed;
 const fmtMin = a => a.minAmt ? fmtAmount(a.minAmt, a.base) : fmtNum(a.min);
 function suggestQty(a){
+  if (isFlag(a)) return a.buy || 1;
   if (a.minAmt) { const need = a.packSize ? Math.ceil((a.minAmt - amount(a)) / a.packSize) : 1; return Math.max(a.buy || 1, need); }
   return Math.max(a.buy || 1, Math.ceil((a.min || 0) - total(a)));
 }
@@ -961,6 +1038,7 @@ const lotSortKey = l => l.expires || l.check || l.bought || '9999';
 function sortedLots(a){ return [...(a.lots||[])].sort((x, y) => lotSortKey(x).localeCompare(lotSortKey(y))); }
 function stockText(a){
   const t = total(a);
+  if (isFlag(a)) return {ok: 'da', low: 'wird knapp', out: 'aus'}[flagState(a)];
   if (t <= 0) return 'leer';
   let txt;
   if (a.mode === 'level') {
@@ -986,6 +1064,7 @@ function makeLots(a, qty, size){
 function addStock(a, qty, size){
   if (size === undefined) size = a.packSize || null;
   if (size) { a.packSize = size; a.sizesUsed = [...new Set([size, ...(a.sizesUsed || [])])].slice(0, 6); }
+  if (isFlag(a)) { a.lots = makeLots(a, 1, size); a.low = false; a.snoozed = false; return a; }   // eingeräumt = da
   if (a.mode !== 'level') {
     const same = (a.lots||[]).find(l => l.bought === today() && !l.opened && (l.size || null) === (size || null));
     if (same) { same.qty += qty; a.snoozed = false; return a; }
@@ -1003,19 +1082,37 @@ function applyOpen(a, l){
   if (a.openMaxDays) { const e = addDays(d, a.openMaxDays); if (!l.expires || e < l.expires) l.expires = e; }
 }
 const isOpen = (a, l) => !!l.opened || (a.mode === 'level' && l.qty < 0.99);
-const canOpen = a => !!a.openable && (a.lots || []).some(l => !isOpen(a, l) && l.qty >= 0.99);
+const canOpen = a => !isFlag(a) && !!a.openable && (a.lots || []).some(l => !isOpen(a, l) && l.qty >= 0.99);
 function openOne(id){
   const a0 = S.articles[id]; if (!a0) return;
   const a = clone(a0), before = clone(a0);
   const lot = sortedLots(a).find(l => !isOpen(a, l) && l.qty >= 0.99); if (!lot) return;
   let live = a.lots.find(l => l.id === lot.id);
   if (a.mode !== 'level' && live.qty > 1) { live.qty -= 1; live = {...clone(live), id: newId(), qty: 1}; a.lots.push(live); }
-  applyOpen(a, live); putArticle(a);
+  applyOpen(a, live); putArticle(a); noteUse(id);
   const until = live.expires ? ', haltbar bis ' + fmtDate(live.expires) : live.check ? ', prüfen ab ' + fmtDate(live.check) : '';
   toast(a.name + ': 1 geöffnet' + until, () => putArticle(before));
 }
+// Zählart „flag“: Stand setzen ('ok', 'low', 'out'); aus zählt im Verlauf als verbraucht
+function setFlag(id, state, quiet){
+  const a0 = S.articles[id]; if (!a0) return null;
+  const before = clone(a0), a = clone(a0), was = flagState(a0);
+  if (state === was) return null;
+  let ev = null;
+  if (state === 'ok') addStock(a, 1);
+  else if (state === 'low') { a.low = true; a.snoozed = false; if (!(a.lots || []).length) a.lots = makeLots(a, 1); }
+  else { a.lots = []; a.low = false; a.snoozed = false; ev = logEvent({t: 'use', a: a.id, n: a.name, q: 1}); }
+  putArticle(a);
+  const msg = a.name + ': ' + {ok: 'wieder da', low: 'wird knapp', out: 'aus'}[state] + (state !== 'ok' && !needsBuy(before) ? ', steht jetzt auf der Liste' : '');
+  const undo = () => { putArticle(before); if (ev) unlog(ev); };
+  noteUse(id);
+  if (quiet) return {msg, undo};
+  toast(msg, undo);
+  return null;
+}
 function consumeOne(id, size, quiet){
   const a0 = S.articles[id]; if (!a0 || total(a0) <= 0) return null;
+  if (isFlag(a0)) return setFlag(id, 'out', quiet);
   if (size === undefined && sizeGroups(a0).size > 1) { openSizePicker(id); return; }
   const before = clone(a0); const a = clone(a0);
   let cands = sortedLots(a).filter(l => size === undefined || (l.size || 0) === size);
@@ -1037,6 +1134,7 @@ function consumeOne(id, size, quiet){
   let msg = a.mode === 'level' ? (gone ? a.name + sz + ': aufgebraucht' : a.name + sz + ': jetzt ' + LEVEL_NAME(live.qty)) : a.name + ': 1 ' + unitOf(a) + sz + ' verbraucht';
   if (needsBuy(a) && !needsBuy(before)) msg += ', steht jetzt auf der Liste';
   const undo = () => { putArticle(before); if (ev) unlog(ev); };
+  noteUse(id);
   if (quiet) return {msg, undo};
   toast(msg, undo);
   return null;
@@ -1073,18 +1171,29 @@ function newArticle(name){
 /* ============ Darstellung ============ */
 let renderQueued = false;
 function render(){ if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; doRender(); }); }
+let wasKid = null;
 function doRender(){
   const act = document.activeElement; const keep = act && act.id && !act.closest('#sheet') ? {id: act.id, v: act.value, s: act.selectionStart} : null;
+  const k = kid();
+  if (HH.data && me()) { try { localStorage.setItem(KID_KEY, k ? '1' : '0'); } catch(e) {} }
+  document.body.classList.toggle('kid', k);
+  if (k) {
+    UI.tab = 'cook';
+    if (UI.recipeSort === 'time') UI.recipeSort = 'name';
+    if (wasKid === false && UI.sheet) setTimeout(closeSheet, 0);   // eben zum Kind geworden: offenes Blatt schließen
+  }
+  wasKid = k;
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-current', t.dataset.tab === UI.tab ? 'page' : 'false'));
   const open = shopList().filter(e => !e.done).length;
   $('#shopBadge').innerHTML = open ? '<span class="badge">' + open + '</span>' : '';
-  $('#fab').hidden = UI.tab !== 'stock' && UI.tab !== 'cook';
+  $('#fab').hidden = (UI.tab !== 'stock' && UI.tab !== 'cook') || (k && UI.cookView !== 'wishes');
   $('#fab').setAttribute('aria-label', UI.tab === 'cook' ? (UI.cookView === 'wishes' ? 'Gericht wünschen' : 'Rezept anlegen') : 'Artikel hinzufügen');
   if (UI.tab === 'stock') renderStock(); else if (UI.tab === 'shop') renderShop(); else if (UI.tab === 'cook') renderCook(); else renderMore();
   if (UI.sheet && UI.sheet.refresh) UI.sheet.refresh();
   if (keep) { const el = document.getElementById(keep.id); if (el && el !== document.activeElement) { el.focus(); if ('value' in el && keep.v != null) { el.value = keep.v; try { el.setSelectionRange(keep.s, keep.s); } catch(e) {} } } }
 }
 function jarHTML(a){
+  if (isFlag(a)) { const st = flagState(a); return '<span class="jar' + (st !== 'ok' ? ' low' : '') + '" aria-hidden="true"><i style="height:' + (st === 'ok' ? 100 : st === 'low' ? 30 : 0) + '%"></i></span>'; }
   const t = total(a);
   const mv = minValue(a), cur = a.minAmt ? amount(a) : t;
   const base = mv > 0 ? mv * 2 : (a.mode === 'level' ? 1 : Math.max(t, 1));
@@ -1102,6 +1211,8 @@ function expiryText(a){
   if (next && daysUntil(next.expires) <= 3) return '<span class="w">haltbar bis ' + fmtDate(next.expires) + '</span>';
   return '';
 }
+const SCAN_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10.5 8v8M14 8v8M17 8v8"/></svg>';
+const USE_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>';
 const CHEV = '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 function renderStock(){
   $('#title').textContent = 'Vorrat';
@@ -1111,7 +1222,7 @@ function renderStock(){
   const extra = $('#topExtra');
   if (!extra.dataset.v || extra.dataset.v !== 'stock') {
     extra.dataset.v = 'stock';
-    extra.innerHTML = '<div class="searchrow"><input class="search" id="q" type="search" placeholder="Im Vorrat suchen" autocomplete="off" aria-label="Im Vorrat suchen"><button class="iconbtn" data-act="scan" aria-label="Barcode scannen"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10.5 8v8M14 8v8M17 8v8"/></svg></button></div><div class="chips" id="filters"></div>';
+    extra.innerHTML = '<div class="searchrow"><input class="search" id="q" type="search" placeholder="Im Vorrat suchen" autocomplete="off" aria-label="Im Vorrat suchen"><button class="iconbtn" data-act="quickuse" aria-label="Verbraucht oder geöffnet eintragen">' + USE_ICON + '</button><button class="iconbtn" data-act="scan" aria-label="Barcode scannen">' + SCAN_ICON + '</button></div><div class="chips" id="filters"></div>';
     $('#q').value = UI.q;
     $('#q').addEventListener('input', e => { UI.q = e.target.value; render(); });
   }
@@ -1153,7 +1264,9 @@ function renderStock(){
       html += '<div class="row' + (t <= 0 ? ' empty' : '') + '">' +
         '<button class="row-main" data-open="' + a.id + '">' + jarHTML(a) +
         '<span style="min-width:0"><div class="name">' + esc(a.name) + '</div><div class="meta">' + parts.join(', ') + '</div></span></button>' +
-        (t > 0 ? '<button class="qbtn' + (a.openable ? ' openable' : '') + '" data-use="' + a.id + '" aria-label="' + esc(a.name) + ': eins verbraucht' + (a.openable ? ', lange drücken: eins öffnen' : '') + '">−</button>'
+        (isFlag(a) ? (flagState(a) === 'out' ? '<button class="qbtn add" data-refill="' + a.id + '" aria-label="' + esc(a.name) + ' ist wieder da">+</button>'
+            : '<button class="qbtn flag' + (a.low ? ' low' : '') + '" data-flag="' + a.id + '" data-to="' + (a.low ? 'out' : 'low') + '" aria-label="' + esc(a.name) + (a.low ? ' ist aus' : ' wird knapp') + '">' + (a.low ? 'Aus' : 'Knapp') + '</button>')
+        : t > 0 ? '<button class="qbtn' + (a.openable ? ' openable' : '') + '" data-use="' + a.id + '" aria-label="' + esc(a.name) + ': eins verbraucht' + (a.openable ? ', lange drücken: eins öffnen' : '') + '">−</button>'
                : '<button class="qbtn add" data-refill="' + a.id + '" aria-label="' + esc(a.name) + ' wieder auffüllen">+</button>') +
         '</div>';
     }
@@ -1288,14 +1401,16 @@ function renderMore(){
     '<div class="card"><h2>Kategorien</h2><p>Einer pro Zeile. Die Reihenfolge bestimmt die Sortierung der Einkaufsliste, also am besten so, wie du durchs Geschäft gehst.</p><textarea id="catsTA" aria-label="Kategorien" style="min-height:220px">' + esc(S.meta.cats.join('\n')) + '</textarea></div>' +
     '<div class="card"><h2>Daten</h2>' + (STORE.state === 'ok' ? '' : '<div class="notice" style="margin:4px 0 12px">' + (STORE.state === 'partial'
       ? 'Der Speicher auf diesem Gerät wird knapp. Der Verlauf wird hier deshalb nicht mehr zwischengespeichert; alles andere funktioniert normal und ist in der Cloud gesichert.'
-      : 'Der Speicher auf diesem Gerät ist voll. Deine Daten sind in der Cloud gesichert und die App funktioniert weiter, nur der schnelle Zwischenspeicher für den Start ist aus. Abhilfe: im Browser die Website-Daten anderer Seiten löschen.') + '</div>') + '<p>' + 'Mit einer Sicherung kannst du alles als Datei speichern und später wieder laden, zum Beispiel die Daten aus dem Prototyp.</p>' +
-      '<div class="btnrow"><button class="btn ghost" id="exportBtn">Sicherung speichern</button><label class="btn ghost" style="display:inline-block">Sicherung laden<input type="file" id="importFile" accept="application/json,.json" class="sr"></label><button class="btn danger" id="resetBtn">Alles löschen</button></div></div>';
+      : 'Der Speicher auf diesem Gerät ist voll. Deine Daten sind in der Cloud gesichert und die App funktioniert weiter, nur der schnelle Zwischenspeicher für den Start ist aus, und jeder Start liest wieder alles. Abhilfe: im Browser die Website-Daten anderer Seiten löschen.') + '</div>') + '<p>' + 'Mit einer Sicherung kannst du alles als Datei speichern und später wieder laden, zum Beispiel die Daten aus dem Prototyp.</p>' +
+      '<p>Beim Start holt die App nur, was sich seit dem letzten Mal geändert hat, und gleicht alle paar Tage einmal alles ab. Schaut etwas auf zwei Geräten verschieden aus, hilft „Alles neu abgleichen“.</p>' +
+      '<div class="btnrow"><button class="btn ghost" id="exportBtn">Sicherung speichern</button><label class="btn ghost" style="display:inline-block">Sicherung laden<input type="file" id="importFile" accept="application/json,.json" class="sr"></label><button class="btn ghost" id="resyncBtn">Alles neu abgleichen</button><button class="btn danger" id="resetBtn">Alles löschen</button></div></div>';
   const saveList = (id, key) => $(id).addEventListener('change', e => {
     const v = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
     if (v.length) { S.meta[key] = [...new Set(v)]; saveMeta(); toast('Gespeichert'); }
   });
   saveList('#locsTA', 'locs'); saveList('#catsTA', 'cats');
   const inv = $('#inviteBtn'); if (inv) inv.onclick = invite;
+  document.querySelectorAll('[data-kidrole]').forEach(c => c.onchange = () => setRole(c.dataset.kidrole, c.checked));
   const lo = $('#logoutBtn'); if (lo) lo.onclick = logout;
   const rn = $('#renewBtn'); if (rn) rn.onclick = renewCode;
   const setPd = d => { S.meta.planDays = Math.min(14, Math.max(1, (S.meta.planDays || 7) + d)); saveMeta(); };
@@ -1307,6 +1422,7 @@ function renderMore(){
     toast(before.label + ' vergessen', () => { S.meta.learned[k] = before; saveMeta(); });
   });
   $('#exportBtn').onclick = exportData;
+  $('#resyncBtn').onclick = () => { SYNC = null; clearTimeout(saveTimer); try { localStorage.setItem(LS_KEY, JSON.stringify({...S, _sync: null})); } catch(e) {} location.reload(); };
   $('#importFile').onchange = importData;
   $('#resetBtn').onclick = e => {
     const b = e.currentTarget;
@@ -1318,15 +1434,40 @@ function renderMore(){
 function learnedCard(){
   const L = Object.entries(S.meta.learned || {}).sort((x, y) => x[1].label.localeCompare(y[1].label, 'de'));
   if (!L.length) return '<div class="card"><h2>Gelernte Zuordnungen</h2><p>Noch nichts gelernt. Sobald du Artikel anlegst oder Kategorie, Lagerort oder Zählweise änderst, merkt sich die App das und schlägt es bei ähnlichen Namen vor.</p></div>';
-  const rows = L.map(([k, v]) => '<div class="lot"><div class="l">' + esc(v.label) + '<small>' + [v.cat || 'ohne Kategorie', v.loc, v.mode === 'level' ? 'Füllstand' : ''].filter(Boolean).map(esc).join(', ') + '</small></div><button class="xbtn" data-forget="' + esc(k) + '" aria-label="' + esc(v.label) + ' vergessen">×</button></div>').join('');
+  const rows = L.map(([k, v]) => '<div class="lot"><div class="l">' + esc(v.label) + '<small>' + [v.cat || 'ohne Kategorie', v.loc, v.mode === 'level' ? 'Füllstand' : v.mode === 'flag' ? 'nur melden' : ''].filter(Boolean).map(esc).join(', ') + '</small></div><button class="xbtn" data-forget="' + esc(k) + '" aria-label="' + esc(v.label) + ' vergessen">×</button></div>').join('');
   return '<div class="card"><h2>Gelernte Zuordnungen</h2><p>' + (L.length === 1 ? '1 Artikel' : L.length + ' Artikel') + ' gemerkt. Neue Artikel mit ähnlichem Namen bekommen dieselbe Kategorie, denselben Lagerort und dieselbe Zählweise.</p><details id="learnedDetails" style="margin-top:4px"' + (UI.learnedOpen ? ' open' : '') + '><summary>Alle anzeigen</summary>' + rows + '</details></div>';
+}
+/* Rollen. households/{hid}.roles = {uid: 'child'}; fehlt der Eintrag (oder null), ist die Person erwachsen.
+   Kinder sehen nur „Kochen“: den Wochenplan zum Ansehen, Wünsche (wünschen und abstimmen) und Rezepte zum
+   Ansehen und Bewerten, ohne Portionen, Zeiten, Zubereitung und ohne Vorrat. Die Rolle merkt sich das Gerät
+   (haushoed:kid), damit ein Kind beim Start nicht kurz die ganze App sieht, bevor der Haushalt geladen ist.
+   Die Sperre gilt in der App; die Firestore-Regeln unterscheiden (noch) nicht zwischen Rollen. */
+const KID_KEY = 'haushoed:kid';
+const roleOf = uid => (HH.data && HH.data.roles && HH.data.roles[uid]) || 'adult';
+function kid(){
+  if (HH.data && me()) return roleOf(me()) === 'child';
+  try { return localStorage.getItem(KID_KEY) === '1'; } catch(e) { return false; }
+}
+function memberList(){
+  const d = HH.data || {};
+  return (d.members || []).map(uid => ({uid, name: (d.names || {})[uid] || 'Jemand', child: roleOf(uid) === 'child'}));
+}
+function setRole(uid, child){
+  if (!R.active || !HH.data || uid === me() || kid()) return;
+  HH.data.roles = {...(HH.data.roles || {}), [uid]: child ? 'child' : null};
+  schedule('home#role.' + uid, () => R.home.update({['roles.' + uid]: child ? 'child' : null}));
+  const n = memberList().find(m => m.uid === uid);
+  toast((n ? n.name : 'Die Person') + (child ? ' sieht jetzt nur noch „Kochen“' : ' sieht wieder alles'));
+  render();
 }
 function householdCard(){
   if (!R.active || !HH.data) return '';
-  const names = Object.values(HH.data.names || {});
+  const ms = memberList();
   return '<div class="card"><h2>Euer Haushalt</h2><p>Mit diesem Code kommen weitere Geräte und Familienmitglieder dazu:</p>' +
     '<div class="hhcode">' + esc(fmtCode(HH.data.inviteCode)) + '</div>' +
-    '<p>' + (names.length > 1 ? 'Dabei: ' + esc(names.join(', ')) + '.' : 'Bisher bist nur du dabei.') + '</p>' +
+    (ms.length > 1 ? '<div class="list members" style="margin-top:12px">' + ms.map(m => '<div class="lot member"><div class="l">' + esc(m.name) + '<small>' + (m.uid === me() ? 'das bist du' : m.child ? 'Kind: sieht nur „Kochen“, kann wünschen und bewerten' : 'erwachsen') + '</small></div>' +
+        (m.uid === me() ? '' : '<label class="switch"><input type="checkbox" data-kidrole="' + esc(m.uid) + '"' + (m.child ? ' checked' : '') + '><span>Kind</span></label>') + '</div>').join('') + '</div>'
+      : '<p>Bisher bist nur du dabei.</p>') +
     '<div class="btnrow"><button class="btn" id="inviteBtn">Code teilen</button><button class="btn quiet" id="renewBtn">Code erneuern</button><button class="btn quiet" id="logoutBtn">Gerät abmelden</button></div></div>';
 }
 async function invite(){
@@ -1398,21 +1539,22 @@ function settingsFields(a){
     '<div class="field"><span class="lbl">Wo liegt es?</span><div class="chips" style="flex-wrap:wrap;padding-top:0">' + locChips + '</div></div>' +
     '<div class="field"><label for="f-cat">Kategorie</label><select id="f-cat">' + catOpts + '</select>' + (a._from ? '<div class="hint">Vorschlag wie bei „' + esc(a._from) + '“</div>' : '') + '</div>' +
     '<details' + (a._openDetails ? ' open' : '') + ' id="f-details"><summary>Mehr Einstellungen</summary>' +
-      '<div class="field"><span class="lbl">Wie zählst du?</span><div class="seg"><button type="button" data-mode="count" aria-pressed="' + (a.mode !== 'level') + '">Stück zählen</button><button type="button" data-mode="level" aria-pressed="' + (a.mode === 'level') + '">Füllstand schätzen</button></div>' +
-      '<div class="hint">' + (a.mode === 'level' ? 'Für Shampoo, Öl, Mehl und Co.: jede Flasche oder Packung ist voll, halb oder fast leer.' : 'Für Dinge, die man einzeln zählt: Joghurts, Dosen, Rollen.') + '</div></div>' +
+      '<div class="field"><span class="lbl">Wie zählst du?</span><div class="seg"><button type="button" data-mode="count" aria-pressed="' + (a.mode !== 'level' && a.mode !== 'flag') + '">Stück zählen</button><button type="button" data-mode="level" aria-pressed="' + (a.mode === 'level') + '">Füllstand</button><button type="button" data-mode="flag" aria-pressed="' + (a.mode === 'flag') + '">Nur melden</button></div>' +
+      '<div class="hint">' + (a.mode === 'level' ? 'Für Shampoo, Öl, Mehl und Co.: jede Flasche oder Packung ist voll, halb oder fast leer.' : a.mode === 'flag' ? 'Für Salz, Gewürze, Klopapier und Co.: nichts abhaken. Tipp nur auf „Knapp“ oder „Aus“, wenn es so weit ist, dann kommt es auf die Liste.' : 'Für Dinge, die man einzeln zählt: Joghurts, Dosen, Rollen.') + '</div></div>' +
+      (a.mode === 'flag' ? '<div class="field"><label for="f-buy">Dann kaufen</label><input type="number" inputmode="decimal" min="1" step="1" id="f-buy" value="' + (a.buy || 1) + '" style="max-width:120px"></div>' :
       '<div class="two"><div class="field"><label for="f-min">Nachkaufen unter</label><input type="number" inputmode="decimal" min="0" step="any" id="f-min" value="' + (minInAmount(a) ? fmtNum(minValue(a) / amtFactor(a)).replace(',', '.') : (a.min || '')) + '" placeholder="0">' +
         (a.base ? '<div class="seg mini" style="margin-top:6px"><button type="button" data-minin="pack" aria-pressed="' + !minInAmount(a) + '">' + esc(PLURAL[unitOf(a)] || unitOf(a)) + '</button><button type="button" data-minin="amount" aria-pressed="' + minInAmount(a) + '">' + amtUnit(a) + '</button></div>' : '') + '</div>' +
       '<div class="field"><label for="f-buy">Dann kaufen</label><input type="number" inputmode="decimal" min="1" step="1" id="f-buy" value="' + (a.buy || 1) + '"></div></div>' +
-      '<div class="hint">' + 'Bei 0 kommt es nie von selbst auf die Liste.</div>' +
+      '<div class="hint">' + 'Bei 0 kommt es nie von selbst auf die Liste.</div>') +
       '<div class="two"><div class="field"><label for="f-check">Ohne Prüfen ok</label><input type="number" inputmode="numeric" min="0" id="f-check" value="' + (a.checkDays || '') + '" placeholder="Tage"></div>' +
       '<div class="field"><label for="f-max">Höchstens haltbar</label><input type="number" inputmode="numeric" min="0" id="f-max" value="' + (a.maxDays || '') + '" placeholder="Tage"></div></div>' +
       '<div class="hint">Tage ab dem Einkauf. Gilt für neue Einkäufe; leer lassen bei Dingen, die nicht schlecht werden.</div>' +
-      '<label class="switch"><input type="checkbox" id="f-openable"' + (a.openable ? ' checked' : '') + '><span>Öffenbar</span></label>' +
+      (a.mode === 'flag' ? '' : '<label class="switch"><input type="checkbox" id="f-openable"' + (a.openable ? ' checked' : '') + '><span>Öffenbar</span></label>' +
       '<div class="hint">Für Dinge, die nach dem Öffnen schneller verderben: Milch, Saucen, Säfte. Öffnen geht im Artikel oder in der Vorratsliste: das − lange drücken.</div>' +
       (a.openable ? '<div class="lbl" style="margin-top:14px;font-size:14px;font-weight:600;color:var(--muted)">Wenn geöffnet</div>' +
         '<div class="two"><div class="field" style="margin-top:6px"><label for="f-ocheck">Ohne Prüfen ok</label><input type="number" inputmode="numeric" min="0" id="f-ocheck" value="' + (a.openCheckDays || '') + '" placeholder="Tage"></div>' +
         '<div class="field" style="margin-top:6px"><label for="f-omax">Höchstens haltbar</label><input type="number" inputmode="numeric" min="0" id="f-omax" value="' + (a.openMaxDays || '') + '" placeholder="Tage"></div></div>' +
-        '<div class="hint">Tage ab dem Öffnen. Gilt, wenn es früher ist als das normale Datum.</div>' : '') +
+        '<div class="hint">Tage ab dem Öffnen. Gilt, wenn es früher ist als das normale Datum.</div>' : '')) +
     '</details>';
 }
 const amtUnit = a => a.base === 'g' ? 'kg' : a.base === 'ml' ? 'l' : 'Stk';
@@ -1422,10 +1564,12 @@ function readSettings(root, a){
   const v = id => root.querySelector(id);
   a.cat = v('#f-cat').value;
   if (v('#f-unit')) a.unit = v('#f-unit').value.trim() || (a.mode === 'level' ? 'Pkg' : 'Stk');
-  const mv = Math.max(0, num(v('#f-min').value));
-  if (a.base) a.minIn = minInAmount(a) ? 'amount' : 'pack';
-  if (a.base && minInAmount(a)) { a.minAmt = mv > 0 ? mv * amtFactor(a) : null; a.min = 0; }
-  else { a.min = mv; a.minAmt = null; }
+  if (v('#f-min')) {
+    const mv = Math.max(0, num(v('#f-min').value));
+    if (a.base) a.minIn = minInAmount(a) ? 'amount' : 'pack';
+    if (a.base && minInAmount(a)) { a.minAmt = mv > 0 ? mv * amtFactor(a) : null; a.min = 0; }
+    else { a.min = mv; a.minAmt = null; }
+  }
   a.buy = Math.max(1, num(v('#f-buy').value, 1));
   const cd = num(v('#f-check').value), md = num(v('#f-max').value);
   a.checkDays = cd > 0 ? Math.round(cd) : null;
@@ -1440,7 +1584,7 @@ function bindSettings(root, a, onChange){
   root.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { readSettings(root, a); a.mode = b.dataset.mode; a._openDetails = true; onChange(true); });
   root.querySelectorAll('[data-minin]').forEach(b => b.onclick = () => { a._minIn = b.dataset.minin; readSettings(root, a); a._openDetails = true; onChange(true); });
   root.querySelectorAll('#f-cat,#f-unit,#f-min,#f-buy,#f-check,#f-max,#f-ocheck,#f-omax').forEach(el => el.addEventListener('change', () => { readSettings(root, a); onChange(false); }));
-  root.querySelector('#f-openable').addEventListener('change', () => { readSettings(root, a); a._openDetails = true; onChange(true); });
+  const op = root.querySelector('#f-openable'); if (op) op.addEventListener('change', () => { readSettings(root, a); a._openDetails = true; onChange(true); });
   root.querySelector('#f-details').addEventListener('toggle', e => { a._openDetails = e.target.open; });
   // Einheit: Vorschläge wie bei den Namen
   const ui = root.querySelector('#f-unit'), us = root.querySelector('#unitSugg');
@@ -1592,15 +1736,22 @@ function openEdit(id){
       }
     }
     const t = total(a);
+    const flagBox = () => {
+      const st = flagState(a), l = sortedLots(a)[0], lst = l ? lotStatus(l) : '';
+      const info = l ? [l.bought ? 'eingeräumt ' + fmtDate(l.bought) : '', l.check ? (lst === 'w' ? '<span style="color:var(--mustard)">prüfen seit ' + fmtDate(l.check) + '</span>' : 'ohne Prüfen bis ' + fmtDate(l.check)) : '', l.expires ? (lst === 'x' ? '<span style="color:var(--berry)">abgelaufen ' + fmtDate(l.expires) + '</span>' : 'haltbar bis ' + fmtDate(l.expires)) : ''].filter(Boolean).join(', ') : '';
+      return '<div class="stockbox"><div class="seg" role="group" aria-label="Stand">' + [['ok', 'Da'], ['low', 'Wird knapp'], ['out', 'Ist aus']].map(([k, lb]) => '<button type="button" data-fstate="' + k + '" aria-pressed="' + (st === k) + '">' + lb + '</button>').join('') + '</div>' +
+        '<p class="hint" style="margin:8px 0 0">' + (st === 'ok' ? 'Wird nicht abgehakt. Tipp auf „Wird knapp“ oder „Ist aus“, wenn es so weit ist.' : 'Steht auf der Einkaufsliste. Nach dem Einräumen ist es wieder da.') + (info ? '<br>' + info : '') + '</p></div>';
+    };
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><input id="f-name" value="' + esc(a.name) + '" autocomplete="off" aria-label="Name"><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      (isFlag(a) ? flagBox() :
       '<div class="stockbox"><div class="sumline"><b>' + esc(stockText(a)) + '</b>' + (hasMin(a) ? '<span class="hint" style="margin:0">nachkaufen unter ' + esc(fmtMin(a)) + '</span>' : '') + '</div>' +
         lotsHTML +
         '<div class="actions">' + (t > 0 ? '<button class="btn ghost" id="use1">' + (a.mode === 'level' ? 'Etwas verbraucht' : '1 verbraucht') + '</button>' : '') +
         (canOpen(a) ? '<button class="btn ghost" id="open1">1 öffnen</button>' : '') +
         '</div><div class="actions"><div class="stepper"><button id="aMinus" aria-label="weniger">−</button><span>' + esc(qtyUnit(addQty, unitOf(a))) + '</span><button id="aPlus" aria-label="mehr">+</button></div>' +
         '<span class="hint" style="margin:0">à</span><input type="text" id="f-addsize" class="sizein" autocomplete="off" enterkeyhint="done" placeholder="Größe" aria-label="Packungsgröße" value="' + esc(addSizeStr != null ? addSizeStr : (a.packSize ? fmtAmount(a.packSize, a.base) : '')) + '"><button class="btn" id="addBtn">Dazu</button></div>' + sizeChips(a) +
-      '</div>' +
-      settingsFields(draft) + recipeField(a) + codesField(a) +
+      '</div>') +
+      settingsFields(draft) + (isFlag(a) ? '' : recipeField(a)) + codesField(a) +
       '<div class="sheet-foot"><button class="btn danger" id="delBtn">' + (delSure ? 'Wirklich löschen?' : 'Artikel löschen') + '</button><button class="btn ghost" id="toList">Auf die Liste</button></div>';
     root.querySelector('#close').onclick = closeSheet;
     const nameEl = root.querySelector('#f-name');
@@ -1611,6 +1762,8 @@ function openEdit(id){
     root.querySelectorAll('[data-reason]').forEach(b => b.onclick = () => { const l = S.articles[id].lots.find(x => x.id === discardLot); discard(id, discardLot, Math.min(discardQty, l ? l.qty : 1), b.dataset.reason); discardLot = null; });
     const u = root.querySelector('#use1'); if (u) u.onclick = () => consumeOne(id);
     const o1 = root.querySelector('#open1'); if (o1) o1.onclick = () => openOne(id);
+    root.querySelectorAll('[data-fstate]').forEach(b => b.onclick = () => setFlag(id, b.dataset.fstate));
+    if (root.querySelector('#aMinus')) {
     root.querySelector('#aMinus').onclick = () => { addQty = Math.max(1, addQty - 1); build(); };
     root.querySelector('#aPlus').onclick = () => { addQty += 1; build(); };
     const asz = root.querySelector('#f-addsize');
@@ -1624,6 +1777,7 @@ function openEdit(id){
       asz.blur(); addSizeStr = null;
       addStock(c, addQty, size); putArticle(c); toast(c.name + ': ' + qtyUnit(addQty, unitOf(c)) + (size ? ' à ' + fmtAmount(size, c.base) : '') + ' dazu', () => putArticle(before));
     };
+    }
     root.querySelector('#toList').onclick = () => { addToShopById(id); };
     bindRecipeField(root, id);
     root.querySelector('#scanCode').onclick = () => openScanner({assignTo: id});
@@ -1647,7 +1801,7 @@ function openEdit(id){
       const keep = draft._openDetails;
       Object.assign(cur, {cat: draft.cat, loc: draft.loc, mode: draft.mode, unit: draft.unit, min: draft.min, minAmt: draft.minAmt || null, minIn: draft.minIn || null, buy: draft.buy, checkDays: draft.checkDays, maxDays: draft.maxDays,
         openable: !!draft.openable, openCheckDays: draft.openCheckDays || null, openMaxDays: draft.openMaxDays || null});
-      if (cur.mode !== S.articles[id].mode) cur.lots = convertLots(S.articles[id], cur.mode);
+      if (cur.mode !== S.articles[id].mode) { cur.lots = convertLots(S.articles[id], cur.mode); cur.low = false; }
       putArticle(cur);
       learn(cur);
       draft._openDetails = keep;
@@ -1717,6 +1871,7 @@ function bindRecipeField(root, id){
   }
 }
 function convertLots(a, mode){
+  if (mode === 'flag') { const l = sortedLots(a)[0]; return total(a) > 0 && l ? [{...l, id: newId(), qty: 1, opened: null}] : []; }
   if (mode === 'level') return (a.lots || []).flatMap(l => Array.from({length: Math.max(1, Math.round(l.qty))}, () => ({...l, id: newId(), qty: 1})));
   return (a.lots || []).map(l => ({...l, qty: 1}));
 }
@@ -1789,6 +1944,7 @@ function amtNeed(ing, a, f){
   return {metric: 'any', v: 0};
 }
 function ingNeed(ing, a, f){
+  if (isFlag(a)) return {metric: 'any', v: 0};
   if (ing.kind === 'soft') return ing.spoon ? amtNeed(ing, a, f) : {metric: 'any', v: 0};
   if (ing.kind === 'measure') return amtNeed(ing, a, f);
   const q = (ing.qty || 1) * f;
@@ -1954,25 +2110,28 @@ function renderCook(){
 function renderPlan(){
   const recipes = Object.values(S.recipes);
   if (!recipes.length) {
-    $('#view').innerHTML = '<div class="emptystate"><h2>Noch keine Rezepte</h2><p>Leg ein Rezept an, plane es für einen Tag, und fehlende Zutaten landen von selbst auf der Einkaufsliste.</p><button class="btn" data-act="newrecipe">Erstes Rezept anlegen</button></div>';
+    $('#view').innerHTML = kid() ? '<div class="emptystate"><h2>Noch keine Rezepte</h2><p>Sobald es Rezepte gibt, siehst du hier, was gekocht wird, und kannst dir Gerichte wünschen.</p></div>'
+      : '<div class="emptystate"><h2>Noch keine Rezepte</h2><p>Leg ein Rezept an, plane es für einen Tag, und fehlende Zutaten landen von selbst auf der Einkaufsliste.</p><button class="btn" data-act="newrecipe">Erstes Rezept anlegen</button></div>';
     return;
   }
   const t0 = today(), {status} = planCalc(), byDate = {};
   for (const e of Object.values(S.plan)) if (e.date >= t0 && S.recipes[e.recipeId]) (byDate[e.date] = byDate[e.date] || []).push(e);
-  let html = '<p class="hint" style="margin:14px 2px 0">Was für die nächsten ' + (S.meta.planDays || 7) + ' Tage fehlt, steht automatisch auf der Einkaufsliste.</p>';
+  const k = kid();
+  let html = '<p class="hint" style="margin:14px 2px 0">' + (k ? 'Das wird in den nächsten Tagen gekocht.' : 'Was für die nächsten ' + (S.meta.planDays || 7) + ' Tage fehlt, steht automatisch auf der Einkaufsliste.') + '</p>';
   const wl = wishList();
   html += '<section class="group"><div class="dayhead"><h2>Wunschliste</h2><button class="btn quiet" data-cookview="wishes" style="padding:4px 2px">' + (wl.length > 5 ? 'Alle ' + wl.length + ' ansehen' : wl.length ? 'Wünsche' : 'Etwas wünschen') + '</button></div>' +
     (wl.length ? '<div class="list">' + wishRows(wl.slice(0, 5)) + '</div>' : '<p class="hint" style="margin:0 2px">Noch keine Wünsche. Jede und jeder kann sich bis zu ' + WISH_MAX + ' Gerichte wünschen.</p>') + '</section>';
   for (let i = 0; i < 14; i++) {
     const d = addDays(t0, i), list = (byDate[d] || []).sort((x, y) => (x.created || 0) - (y.created || 0));
     if (i === 7) html += '<h3 class="weekhead">Danach</h3>';
-    html += '<section class="day' + (i === 0 ? ' today' : '') + '"><div class="dayhead"><h2>' + esc(dayLabel(d)) + '</h2><button class="addmeal" data-addmeal="' + d + '" aria-label="Gericht für ' + esc(dayLabel(d)) + ' planen">+</button></div>';
+    html += '<section class="day' + (i === 0 ? ' today' : '') + '"><div class="dayhead"><h2>' + esc(dayLabel(d)) + '</h2>' + (k ? '' : '<button class="addmeal" data-addmeal="' + d + '" aria-label="Gericht für ' + esc(dayLabel(d)) + ' planen">+</button>') + '</div>';
     if (list.length) {
       html += '<div class="list">';
       for (const e of list) {
         const r = S.recipes[e.recipeId], stt = status[e.id] || {missing: [], check: []}, miss = stt.missing, chk = stt.check || [];
         const txt = e.cooked ? 'gekocht' : miss.length ? missText(miss) : chk.length ? 'prüfen: ' + chk.slice(0, 3).join(', ') : 'alles da';
-        html += '<button class="meal' + (e.cooked ? ' cooked' : '') + '" data-meal="' + e.id + '"><span class="dot' + (e.cooked ? '' : miss.length ? ' miss' : chk.length ? ' chk' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + fmtNum(e.servings || r.servings || 1) + ' Portionen, ' + esc(txt) + '</span></span></button>';
+        html += k ? '<button class="meal' + (e.cooked ? ' cooked' : '') + '" data-meal="' + e.id + '"><span class="dot"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span>' + (e.cooked ? '<span class="meta">gekocht</span>' : '') + '</span></button>'
+          : '<button class="meal' + (e.cooked ? ' cooked' : '') + '" data-meal="' + e.id + '"><span class="dot' + (e.cooked ? '' : miss.length ? ' miss' : chk.length ? ' chk' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + fmtNum(e.servings || r.servings || 1) + ' Portionen, ' + esc(txt) + '</span></span></button>';
       }
       html += '</div>';
     }
@@ -2016,6 +2175,7 @@ function allTags(){
 const hasTag = (r, t) => (r.tags || []).some(x => norm(x) === norm(t));
 const matchTags = (r, sel) => sel.every(t => hasTag(r, t));
 /* Sortieren: A–Z; Bewertung (bester Schnitt zuerst, Unbewertetes am Ende); Zeit (schnellstes zuerst, ohne Zeit am Ende) */
+const FILTER_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M4 6h16M7 12h10M10 18h4"/></svg>';
 const RECIPE_SORTS = [['name', 'A–Z'], ['rating', 'Bewertung'], ['time', 'Zeit']];
 function sortRecipes(list, how){
   const byName = (x, y) => x.name.localeCompare(y.name, 'de', {numeric: true});
@@ -2055,6 +2215,7 @@ function renameTag(oldT, raw){
   const before = hit.map(r => [r.id, [...(r.tags || [])]]);
   setTagsMany(hit.map(r => [r.id, dedupeTags((r.tags || []).map(t => norm(t) === norm(oldT) ? target : t))]));
   UI.tagFilter = dedupeTags(UI.tagFilter.map(t => norm(t) === norm(oldT) ? target : t));
+  fixSavedTags(oldT, target);
   toast(other ? '„' + oldT + '“ mit „' + target + '“ zusammengeführt' : '„' + oldT + '“ heißt jetzt „' + target + '“', () => setTagsMany(before));
   return true;
 }
@@ -2063,6 +2224,7 @@ function deleteTag(t){
   const before = hit.map(r => [r.id, [...(r.tags || [])]]);
   setTagsMany(hit.map(r => [r.id, (r.tags || []).filter(x => norm(x) !== norm(t))]));
   UI.tagFilter = UI.tagFilter.filter(x => norm(x) !== norm(t));
+  fixSavedTags(t, null);
   toast('Tag „' + t + '“ gelöscht', () => setTagsMany(before));
 }
 function openTagManager(){
@@ -2102,20 +2264,164 @@ function renderRecipes(){
   if (!all.length) { renderPlan(); return; }
   const tags = allTags();
   UI.tagFilter = UI.tagFilter.filter(t => tags.some(x => norm(x) === norm(t)));
-  const list = all.filter(r => matchTags(r, UI.tagFilter));
-  let html = '<div class="rtools"><div class="seg mini" role="group" aria-label="Sortieren">' + RECIPE_SORTS.map(([k, l]) => '<button type="button" data-rsort="' + k + '" aria-pressed="' + (UI.recipeSort === k) + '">' + l + '</button>').join('') + '</div>' +
-    (tags.length ? '<button type="button" class="btn quiet" data-act="tags" style="padding:4px 2px">Tags verwalten</button>' : '') + '</div>' +
-    tagChipsHTML(UI.tagFilter, 'tagfilter', 'margin-top:10px');
-  if (!list.length) html += '<div class="emptystate" style="margin-top:28px"><p>Kein Rezept hat ' + (UI.tagFilter.length > 1 ? 'alle diese Tags' : 'diesen Tag') + '.</p><button class="btn ghost" data-tagfilter="">Alle Rezepte zeigen</button></div>';
-  else html += '<div class="list" style="margin-top:' + (tags.length ? 8 : 12) + 'px">' + list.map(r => {
-    const miss = recipeMissing(r), rt = ratingOf(r), tt = totalTime(r);
-    const meta = [rt.n ? fmtNum(Math.round(rt.avg * 10) / 10) + ' ★' : '', tt ? fmtMinutes(tt) : '', fmtNum(r.servings || 1) + ' Portionen', missText(miss)].filter(Boolean).join(', ');
-    return '<button class="meal" data-recipe="' + r.id + '"><span class="dot' + (miss.length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(meta) + '</span>' +
+  const k = kid(), f = curFilter(), nf = filterCount(f), saved = mySaved(), ftxt = filterText(f);
+  const list = all.filter(r => matchRecipe(r, f));
+  let html = '<div class="rtools"><div class="seg mini" role="group" aria-label="Sortieren">' + RECIPE_SORTS.filter(([key]) => !(k && key === 'time')).map(([key, l]) => '<button type="button" data-rsort="' + key + '" aria-pressed="' + (UI.recipeSort === key) + '">' + l + '</button>').join('') + '</div>' +
+    '<button type="button" class="btn quiet' + (nf ? ' on' : '') + '" data-act="rfilter" style="padding:4px 2px">' + FILTER_ICON + ' Filter' + (nf ? ' (' + nf + ')' : '') + '</button></div>' +
+    (saved.length ? '<div class="chips" style="margin-top:10px" aria-label="Meine Filter">' + saved.map(sf => '<button type="button" class="chip saved" data-rsaved="' + esc(sf.id) + '" aria-pressed="' + sameFilter(f, sf) + '">' + esc(sf.name) + '</button>').join('') + '</div>' : '') +
+    tagChipsHTML(UI.tagFilter, 'tagfilter', 'margin-top:' + (saved.length ? 6 : 10) + 'px') +
+    (ftxt ? '<p class="hint fsum">' + esc(ftxt) + ' <button type="button" class="linkbtn inl" data-act="rclear">Filter löschen</button></p>' : '');
+  if (!list.length) html += '<div class="emptystate" style="margin-top:28px"><p>Kein Rezept passt zu ' + (nf > 1 ? 'diesem Filter' : UI.tagFilter.length ? 'diesem Tag' : 'diesem Filter') + '.</p><button class="btn ghost" data-act="rclear">Alle Rezepte zeigen</button></div>';
+  else html += '<div class="list" style="margin-top:' + (allTags().length || saved.length || ftxt ? 8 : 12) + 'px">' + list.map(r => {
+    const miss = k ? [] : recipeMissing(r), rt = ratingOf(r), tt = totalTime(r);
+    const meta = (k ? [rt.n ? fmtNum(Math.round(rt.avg * 10) / 10) + ' ★' : ''] : [rt.n ? fmtNum(Math.round(rt.avg * 10) / 10) + ' ★' : '', tt ? fmtMinutes(tt) : '', fmtNum(r.servings || 1) + ' Portionen', missText(miss)]).filter(Boolean).join(', ');
+    return '<button class="meal" data-recipe="' + r.id + '"><span class="dot' + (k ? '' : miss.length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span>' + (meta ? '<span class="meta">' + esc(meta) + '</span>' : '') +
       ((r.tags || []).length ? '<span class="rtags">' + r.tags.map(t => '<span>' + esc(t) + '</span>').join('') + '</span>' : '') + '</span></button>';
   }).join('') + '</div>';
   $('#view').innerHTML = html;
 }
 function toggleTagFilter(t){ UI.tagFilter = toggleIn(UI.tagFilter, t); render(); }
+
+/* Rezeptfilter. Ein Filter ist {tags: [...], rate: {uid: {lo, hi}}, prep: {lo, hi}, cook: {lo, hi}}; lo/hi sind
+   inklusive Grenzen oder null (egal). Für eine Bewertung zählt nur, wer bewertet hat: Ist für eine Person ein
+   Bereich gesetzt, fallen Rezepte heraus, die diese Person nicht bewertet hat. Ebenso fallen bei einer Zeitgrenze
+   Rezepte ohne diese Zeit heraus. Der aktive Filter liegt in UI.tagFilter (Tags) und UI.rf (der Rest), pro Gerät.
+   Gespeicherte Filter liegen im Haushaltsdokument unter filters.<uid> (eine Liste {id, name, ...Filter}), also
+   pro Person und auf allen ihren Geräten gleich. */
+const RNG0 = () => ({lo: null, hi: null});
+const rngSet = r => !!r && (r.lo != null || r.hi != null);
+const inRng = (v, r) => (r.lo == null || v >= r.lo) && (r.hi == null || v <= r.hi);
+const curFilter = () => ({tags: [...UI.tagFilter], rate: clone(UI.rf.rate), prep: {...UI.rf.prep}, cook: {...UI.rf.cook}});
+function normFilter(f){
+  const rate = {};
+  for (const k of Object.keys(f.rate || {}).sort()) if (rngSet(f.rate[k])) rate[k] = {lo: f.rate[k].lo ?? null, hi: f.rate[k].hi ?? null};
+  const g = r => rngSet(r) ? {lo: r.lo ?? null, hi: r.hi ?? null} : RNG0();
+  return {tags: [...(f.tags || [])].map(norm).sort(), rate, prep: g(f.prep), cook: g(f.cook)};
+}
+const sameFilter = (a, b) => JSON.stringify(normFilter(a)) === JSON.stringify(normFilter(b));
+function filterCount(f){ const n = normFilter(f); return n.tags.length + Object.keys(n.rate).length + (rngSet(n.prep) ? 1 : 0) + (rngSet(n.cook) ? 1 : 0); }
+function matchRecipe(r, f){
+  if (!matchTags(r, f.tags || [])) return false;
+  for (const [u, rg] of Object.entries(f.rate || {})) {
+    if (!rngSet(rg)) continue;
+    const v = (r.ratings || {})[u] || 0;
+    if (!(v > 0) || !inRng(v, rg)) return false;
+  }
+  for (const [k, rg] of [['prepTime', f.prep], ['cookTime', f.cook]]) if (rngSet(rg) && !(r[k] > 0 && inRng(r[k], rg))) return false;
+  return true;
+}
+function applyFilter(f){
+  UI.tagFilter = [...(f.tags || [])];
+  UI.rf = {rate: clone(f.rate || {}), prep: {...RNG0(), ...(f.prep || {})}, cook: {...RNG0(), ...(f.cook || {})}};
+}
+const clearFilter = () => applyFilter({});
+const rngText = (r, unit) => r.lo != null && r.hi != null ? (r.lo === r.hi ? r.lo + unit : r.lo + '–' + r.hi + unit) : r.lo != null ? 'ab ' + r.lo + unit : 'bis ' + r.hi + unit;
+const filterName = uid => uid === me() ? 'Du' : ((HH.data && HH.data.names || {})[uid] || 'Jemand');
+// Beschreibung ohne Tags (die stehen als Chips da)
+function filterText(f){
+  const n = normFilter(f), parts = [];
+  for (const [u, rg] of Object.entries(n.rate)) parts.push(filterName(u) + ' ' + rngText(rg, ' ★'));
+  if (rngSet(n.prep)) parts.push('Arbeitszeit ' + rngText(n.prep, ' Min.'));
+  if (rngSet(n.cook)) parts.push('Kochzeit ' + rngText(n.cook, ' Min.'));
+  return parts.join(', ');
+}
+const mySaved = () => (HH.data && HH.data.filters && me() && HH.data.filters[me()]) || [];
+function saveMyFilters(list){
+  if (!R.active || !HH.data) { toast('Speichern geht erst, wenn der Haushalt verbunden ist'); return false; }
+  HH.data.filters = {...(HH.data.filters || {}), [me()]: list};
+  schedule('home#filters', () => R.home.update({['filters.' + me()]: list}));
+  render();
+  return true;
+}
+// Umbenannte oder gelöschte Tags auch in gespeicherten Filtern nachziehen (bei allen Personen)
+function fixSavedTags(oldT, newT){
+  if (!R.active || !HH.data || !HH.data.filters) return;
+  for (const [uid, list] of Object.entries(HH.data.filters)) {
+    if (!Array.isArray(list)) continue;
+    let changed = false;
+    const next = list.map(f => {
+      if (!(f.tags || []).some(t => norm(t) === norm(oldT))) return f;
+      changed = true;
+      return {...f, tags: dedupeTags((f.tags || []).flatMap(t => norm(t) === norm(oldT) ? (newT ? [newT] : []) : [t]))};
+    });
+    if (changed) { HH.data.filters = {...HH.data.filters, [uid]: next}; schedule('home#filters.' + uid, () => R.home.update({['filters.' + uid]: next})); }
+  }
+}
+function openRecipeFilter(){
+  const root = $('#sheetInner');
+  let saving = false, saveName = '';
+  const opts = (sel) => '<option value="">egal</option>' + [1, 2, 3, 4, 5].map(n => '<option value="' + n + '"' + (sel === n ? ' selected' : '') + '>' + n + ' ★</option>').join('');
+  const count = () => Object.values(S.recipes).filter(r => matchRecipe(r, curFilter())).length;
+  const build = () => {
+    const focusId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : null;
+    if (focusId && /^f-/.test(focusId)) { const c = root.querySelector('#rf-count'); if (c) c.textContent = countText(); return; }
+    const k = kid(), f = curFilter(), saved = mySaved(), tags = allTags();
+    const num0 = v => v == null ? '' : String(v);
+    const timeRow = (key, label) => '<div class="field"><span class="lbl">' + label + '</span><div class="rngrow"><span>von</span><input type="number" inputmode="numeric" min="0" step="1" id="f-' + key + 'lo" value="' + num0(f[key].lo) + '" placeholder="0" aria-label="' + label + ' von"><span>bis</span><input type="number" inputmode="numeric" min="0" step="1" id="f-' + key + 'hi" value="' + num0(f[key].hi) + '" placeholder="∞" aria-label="' + label + ' bis"><span>Min.</span></div></div>';
+    root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">Filter</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      '<p class="hint" style="margin:0" id="rf-count" aria-live="polite">' + countText() + '</p>' +
+      (saved.length ? '<div class="field"><span class="lbl">Meine Filter</span><div class="list">' + saved.map(sf => '<div class="lot tagrow"><div class="l">' + esc(sf.name) + '<small>' + esc([...(sf.tags || []), filterText(sf)].filter(Boolean).join(', ') || 'kein Kriterium') + '</small></div>' +
+        '<button type="button" class="btn ghost" data-sapply="' + esc(sf.id) + '" aria-pressed="' + sameFilter(f, sf) + '">' + (sameFilter(f, sf) ? 'Aktiv' : 'Anwenden') + '</button><button type="button" class="xbtn" data-sdel="' + esc(sf.id) + '" aria-label="Filter ' + esc(sf.name) + ' löschen">×</button></div>').join('') + '</div></div>' : '') +
+      '<div class="field"><span class="lbl">Bewertung</span><div class="list">' + memberList().map(m => {
+        const rg = f.rate[m.uid] || RNG0();
+        return '<div class="lot tagrow"><div class="l">' + esc(filterName(m.uid)) + '</div><div class="rngrow"><select data-rlo="' + esc(m.uid) + '" aria-label="' + esc(filterName(m.uid)) + ': mindestens">' + opts(rg.lo) + '</select><span>bis</span><select data-rhi="' + esc(m.uid) + '" aria-label="' + esc(filterName(m.uid)) + ': höchstens">' + opts(rg.hi) + '</select></div></div>';
+      }).join('') + '</div><div class="hint">Ist für eine Person etwas gewählt, zählen nur Rezepte, die sie bewertet hat.</div></div>' +
+      '<div class="field"><span class="lbl">Tags</span>' + (tags.length ? '<div class="tagchips">' + tags.map(t => '<button type="button" class="chip" data-ftag="' + esc(t) + '" aria-pressed="' + f.tags.some(x => norm(x) === norm(t)) + '">' + esc(t) + '</button>').join('') + '</div>' +
+        (k ? '' : '<button type="button" class="btn quiet" id="rf-tags" style="padding:6px 2px">Tags verwalten</button>') : '<p class="hint" style="margin:0">Noch keine Tags.</p>') + '</div>' +
+      (k ? '' : timeRow('prep', 'Arbeitszeit') + timeRow('cook', 'Kochzeit')) +
+      (saving ? '<div class="field"><label for="f-sname">Name für diesen Filter</label><div class="actions" style="margin-top:0"><input type="text" id="f-sname" value="' + esc(saveName) + '" autocomplete="off" enterkeyhint="done" style="flex:1;min-width:0"><button type="button" class="btn" id="rf-dosave">Speichern</button></div></div>' : '') +
+      '<div class="sheet-foot"><button type="button" class="btn quiet" id="rf-clear">Zurücksetzen</button>' +
+        (saving ? '<span></span>' : '<button type="button" class="btn ghost" id="rf-save"' + (filterCount(f) ? '' : ' disabled') + '>Filter speichern</button>') + '</div>';
+    root.querySelector('#close').onclick = closeSheet;
+    const upd = () => { render(); };
+    root.querySelectorAll('[data-rlo],[data-rhi]').forEach(sel => sel.onchange = () => {
+      const u = sel.dataset.rlo || sel.dataset.rhi, rg = {...RNG0(), ...(UI.rf.rate[u] || {})};
+      const v = sel.value === '' ? null : +sel.value;
+      if (sel.dataset.rlo) rg.lo = v; else rg.hi = v;
+      if (rg.lo != null && rg.hi != null && rg.lo > rg.hi) [rg.lo, rg.hi] = [rg.hi, rg.lo];
+      if (rngSet(rg)) UI.rf.rate[u] = rg; else delete UI.rf.rate[u];
+      upd();
+    });
+    root.querySelectorAll('[data-ftag]').forEach(b => b.onclick = () => { UI.tagFilter = toggleIn(UI.tagFilter, b.dataset.ftag); upd(); });
+    for (const key of ['prep', 'cook']) for (const side of ['lo', 'hi']) {
+      const el = root.querySelector('#f-' + key + side); if (!el) continue;
+      const read = () => { const v = Math.round(num(el.value)); UI.rf[key][side] = el.value.trim() === '' || !(v >= 0) ? null : v; };
+      el.addEventListener('input', () => { read(); upd(); });
+      el.addEventListener('change', () => {
+        read(); const rg = UI.rf[key];
+        if (rg.lo != null && rg.hi != null && rg.lo > rg.hi) [rg.lo, rg.hi] = [rg.hi, rg.lo];
+        el.blur(); upd(); build();
+      });
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
+    }
+    const tg = root.querySelector('#rf-tags'); if (tg) tg.onclick = openTagManager;
+    root.querySelector('#rf-clear').onclick = () => { clearFilter(); saving = false; upd(); };
+    const sv = root.querySelector('#rf-save');
+    if (sv) sv.onclick = () => { saving = true; saveName = [...UI.tagFilter, filterText(curFilter())].filter(Boolean).join(', ').slice(0, 40); build(); const i = root.querySelector('#f-sname'); if (i) { i.focus(); i.select(); } };
+    const nm = root.querySelector('#f-sname'), ds = root.querySelector('#rf-dosave');
+    if (nm && ds) {
+      nm.addEventListener('input', () => { saveName = nm.value; });
+      const go = () => {
+        const name = nm.value.trim().slice(0, 40); if (!name) { nm.focus(); return; }
+        const list = mySaved().filter(x => x.name.toLowerCase() !== name.toLowerCase());
+        const entry = {id: newId(), name, ...normFilter(curFilter())};
+        entry.tags = [...UI.tagFilter];   // Schreibweise der Tags behalten
+        nm.blur();
+        if (saveMyFilters([...list, entry].slice(-20))) { saving = false; toast('Filter „' + name + '“ gespeichert'); build(); }
+      };
+      nm.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      ds.addEventListener('mousedown', e => e.preventDefault());
+      ds.onclick = go;
+    }
+    root.querySelectorAll('[data-sapply]').forEach(b => b.onclick = () => { const sf = mySaved().find(x => x.id === b.dataset.sapply); if (!sf) return; if (sameFilter(curFilter(), sf)) clearFilter(); else applyFilter(sf); upd(); });
+    root.querySelectorAll('[data-sdel]').forEach(b => b.onclick = () => {
+      const before = mySaved(), sf = before.find(x => x.id === b.dataset.sdel); if (!sf) return;
+      if (saveMyFilters(before.filter(x => x.id !== sf.id))) toast('Filter „' + sf.name + '“ gelöscht', () => saveMyFilters(before));
+    });
+  };
+  const countText = () => { const n = count(); return n === 1 ? '1 Rezept passt' : n + ' Rezepte passen'; };
+  openSheet(build);
+}
 
 /* Zutaten eines geplanten Gerichts mit dem Stand an seinem Tag */
 const WHY_TEXT = {size: 'Menge ungeprüft, Packungsgröße fehlt', weight: 'Menge ungeprüft, Gewicht pro EL fehlt'};
@@ -2180,6 +2486,7 @@ function ingPreview(r, f){
   }).join('') + '</div>';
 }
 function openRecipe(id, opts){
+  if (kid()) { if (id && S.recipes[id]) openRecipeKid(id); return; }
   opts = opts || {};
   const root = $('#sheetInner');
   const r = id ? clone(S.recipes[id]) : {id: newId(), name: '', servings: 2, ingredients: '', steps: '', created: Date.now()};
@@ -2322,7 +2629,33 @@ function openPicker(date){
   };
   openSheet(shell); shell.refresh = () => {};
 }
+/* Kinderansicht eines Rezepts: Name, Bewertung, Tags, was gebraucht wird (die Zeilen, wie sie im Rezept stehen,
+   ohne Vorrat). Keine Portionen, Zeiten, Zubereitung, nichts zum Ändern außer der eigenen Bewertung. */
+function kidIngredients(r){
+  const lines = String(r.ingredients || '').split('\n').map(x => x.replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+  return '<div class="field"><span class="lbl">Das braucht es</span>' + (lines.length ? '<ul class="kidings">' + lines.map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>' : '<p class="hint">Noch keine Zutaten eingetragen.</p>') + '</div>';
+}
+function openRecipeKid(id, sub){
+  const root = $('#sheetInner');
+  const build = () => {
+    const r = S.recipes[id]; if (!r) { closeSheet(); return; }
+    const mine = (r.ratings || {})[me()] || 0, rt = ratingOf(r);
+    const others = Object.entries(r.ratings || {}).filter(([u, v]) => v > 0 && u !== me()).map(([u, v]) => personName(u) + ' ' + v);
+    root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">' + esc(r.name) + '</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      (sub ? '<p class="hint" style="margin:0">' + esc(sub) + '</p>' : '') +
+      ((r.tags || []).length ? '<div class="rtags" style="margin-top:8px">' + r.tags.map(t => '<span>' + esc(t) + '</span>').join('') + '</div>' : '') +
+      '<div class="field"><span class="lbl" id="k-rlbl">Deine Bewertung</span><div class="stars" role="group" aria-labelledby="k-rlbl">' +
+        [1, 2, 3, 4, 5].map(n => '<button type="button" class="star" data-star="' + n + '" aria-pressed="' + (n <= mine) + '" aria-label="' + n + (n === 1 ? ' Stern' : ' Sterne') + '">' + STAR + '</button>').join('') + '</div>' +
+        '<div class="hint">' + (rt.n ? 'Schnitt ' + fmtNum(Math.round(rt.avg * 10) / 10) + ' von ' + rt.n + (rt.n === 1 ? ' Bewertung' : ' Bewertungen') + (others.length ? ' (' + esc(others.join(', ')) + ')' : '') : 'Noch nicht bewertet.') + '</div></div>' +
+      kidIngredients(r) +
+      (S.wishes[id] ? '<p class="hint">Steht auf der Wunschliste.</p>' : '');
+    root.querySelector('#close').onclick = closeSheet;
+    root.querySelectorAll('[data-star]').forEach(b => b.onclick = () => { const n = +b.dataset.star; rateRecipe(id, mine === n ? 0 : n); });
+  };
+  openSheet(build);
+}
 function openMeal(planId){
+  if (kid()) { const e = S.plan[planId]; if (e && S.recipes[e.recipeId]) openRecipeKid(e.recipeId, dayLabel(e.date) + (e.cooked ? ', gekocht' : '')); return; }
   const root = $('#sheetInner');
   let moveOpen = false, delSure = false;
   const build = () => {
@@ -2405,9 +2738,9 @@ function voteHTML(w){
 }
 function wishRows(list){
   return list.map(w => {
-    const r = S.recipes[w.recipeId], miss = recipeMissing(r);
+    const r = S.recipes[w.recipeId];
     const who = w.by === me() ? 'dein Wunsch' : 'Wunsch von ' + personName(w.by);
-    return '<div class="wrow">' + voteHTML(w) + '<button class="row-main" data-wish="' + esc(w.id) + '"><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(who + ', ' + missText(miss)) + '</span></span></button></div>';
+    return '<div class="wrow">' + voteHTML(w) + '<button class="row-main" data-wish="' + esc(w.id) + '"><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(kid() ? who : who + ', ' + missText(recipeMissing(r))) + '</span></span></button></div>';
   }).join('');
 }
 function renderWishes(){
@@ -2428,8 +2761,9 @@ function openWish(id){
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">' + esc(r.name) + '</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
       '<div class="wrow" style="border:0;padding:4px 0">' + voteHTML(w) + '<p class="hint" style="margin:0;flex:1">' + esc(w.by === me() ? 'Dein Wunsch' : 'Wunsch von ' + personName(w.by)) + '<br>' +
         esc([pro.length ? 'dafür: ' + pro.join(', ') : '', con.length ? 'dagegen: ' + con.join(', ') : ''].filter(Boolean).join(' · ') || 'noch keine Stimmen') + '</p></div>' +
+      (kid() ? kidIngredients(r) :
       '<div class="field"><span class="lbl">Einplanen für</span><div class="daychips">' + Array.from({length: 14}, (_, i) => addDays(today(), i)).map(d => '<button type="button" class="chip" data-planday="' + d + '">' + esc(dayLabel(d)) + '</button>').join('') + '</div></div>' +
-      '<div class="field"><span class="lbl">Zutaten für ' + fmtNum(r.servings || 1) + ' Portionen</span>' + (ingPreview(r, 1) || '<p class="hint">Noch keine Zutaten eingetragen.</p>') + '</div>' +
+      '<div class="field"><span class="lbl">Zutaten für ' + fmtNum(r.servings || 1) + ' Portionen</span>' + (ingPreview(r, 1) || '<p class="hint">Noch keine Zutaten eingetragen.</p>') + '</div>') +
       '<div class="sheet-foot">' + (w.by === me() ? '<button class="btn danger" id="w-del">' + (delSure ? 'Wirklich herunternehmen?' : 'Von der Liste nehmen') + '</button>' : '<span></span>') + '<button class="btn ghost" id="w-rec">Rezept ansehen</button></div>';
     root.querySelector('#close').onclick = closeSheet;
     root.querySelectorAll('[data-vote]').forEach(b => b.onclick = () => voteWish(id, +b.dataset.v));
@@ -2447,20 +2781,21 @@ function openWishPicker(){
     root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">Gericht wünschen</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
       '<p class="hint" style="margin:0">Gerichte, die schon auf der Liste stehen, fehlen hier. Für die kannst du in der Liste abstimmen.</p>' +
       '<input class="search" id="wp-q" type="search" placeholder="Rezept suchen" autocomplete="off" aria-label="Rezept suchen"><div id="wp-tags"></div><div id="wp-list"></div>' +
-      '<div class="sheet-foot"><span></span><button class="btn ghost" id="wp-new">Neues Rezept</button></div>';
+      (kid() ? '' : '<div class="sheet-foot"><span></span><button class="btn ghost" id="wp-new">Neues Rezept</button></div>');
     const list = () => {
       const n = norm(q);
       const rs = Object.values(S.recipes).filter(r => !S.wishes[r.id] && (!n || norm(r.name).includes(n)) && matchTags(r, tf)).sort((x, y) => x.name.localeCompare(y.name, 'de', {numeric: true}));
       root.querySelector('#wp-tags').innerHTML = tagChipsHTML(tf, 'wtag', 'margin-top:8px');
       root.querySelectorAll('[data-wtag]').forEach(b => b.onclick = () => { tf = toggleIn(tf, b.dataset.wtag); list(); });
-      root.querySelector('#wp-list').innerHTML = rs.length ? '<div class="list" style="margin-top:12px">' + rs.map(r => '<button class="meal" data-wishpick="' + r.id + '"><span class="dot' + (recipeMissing(r).length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(missText(recipeMissing(r))) + '</span></span></button>').join('') + '</div>'
+      root.querySelector('#wp-list').innerHTML = rs.length ? '<div class="list" style="margin-top:12px">' + rs.map(r => (kid() ? '<button class="meal" data-wishpick="' + r.id + '"><span class="dot"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span>' + ((r.tags || []).length ? '<span class="meta">' + esc(r.tags.join(', ')) + '</span>' : '') + '</span></button>'
+        : '<button class="meal" data-wishpick="' + r.id + '"><span class="dot' + (recipeMissing(r).length ? ' miss' : ' ok') + '"></span><span class="minfo"><span class="name">' + esc(r.name) + '</span><span class="meta">' + esc(missText(recipeMissing(r))) + '</span></span></button>')).join('') + '</div>'
         : '<p class="hint" style="margin-top:12px">' + (n || tf.length ? 'Kein Rezept gefunden.' : 'Alle Rezepte stehen schon auf der Wunschliste.') + '</p>';
       root.querySelectorAll('[data-wishpick]').forEach(b => b.onclick = () => { if (addWish(b.dataset.wishpick)) closeSheet(); });
     };
     list();
     root.querySelector('#wp-q').addEventListener('input', e => { q = e.target.value; list(); });
     root.querySelector('#close').onclick = closeSheet;
-    root.querySelector('#wp-new').onclick = () => openRecipe(null, {wish: true});
+    const wpn = root.querySelector('#wp-new'); if (wpn) wpn.onclick = () => openRecipe(null, {wish: true});
   };
   openSheet(shell); shell.refresh = () => {};
 }
@@ -2665,11 +3000,11 @@ function openScanner(opts = {}){
       if (sz !== undefined && !(a.lots || []).some(l => (l.size || 0) === sz)) sz = undefined;
       if (sz === undefined && sizeGroups(a).size > 1) { leave(() => consumeOne(id)); return; } // fragt nach der Größe
       const r = consumeOne(id, sz, true);
-      st.panel = {kind: 'done', id, code: c, text: a.mode === 'level' ? 'etwas verbraucht' : '1 verbraucht', undo: r && r.undo}; panel(); return;
+      st.panel = {kind: 'done', id, code: c, text: isFlag(a) ? 'als aus gemeldet, steht auf der Liste' : a.mode === 'level' ? 'etwas verbraucht' : '1 verbraucht', undo: r && r.undo}; panel(); return;
     }
     const before = clone(a), n = clone(a), q = e && e.q > 1 ? e.q : 1;
     addStock(n, q, size); putArticle(n);
-    st.panel = {kind: 'done', id, code: c, before, text: qtyUnit(q, unitOf(n)) + ' dazu', undo: undoAdd(id, before)}; panel();
+    st.panel = {kind: 'done', id, code: c, before, text: isFlag(n) ? 'ist wieder da' : qtyUnit(q, unitOf(n)) + ' dazu', undo: undoAdd(id, before)}; panel();
   };
   // Rückgängig nimmt nur den Bestand zurück, die Menge pro Scan bleibt
   const undoAdd = (id, before) => () => putArticle({...clone(before), codes: clone((S.articles[id] || before).codes || [])});
@@ -2791,6 +3126,78 @@ function openScanner(opts = {}){
   shell.refresh = () => { if (alive() && st.panel && st.panel.kind === 'done') panel(); };
 }
 
+/* ============ Schnell verbrauchen ============
+   Ein Blatt mit sofort aktiver Suche; ohne Suchbegriff stehen oben die Artikel, die zuletzt und am häufigsten
+   verbraucht wurden. Grundlage: der Verlauf des Haushalts (log, 60 Tage) und, für Füllstände und Öffnen, die
+   letzten Griffe auf diesem Gerät (haushoed:recentUse). Ein Tipp zieht 1 ab bzw. meldet „knapp“ oder „aus“. */
+const RECENT_KEY = 'haushoed:recentUse';
+function noteUse(id){
+  try {
+    const list = (JSON.parse(localStorage.getItem(RECENT_KEY)) || []).filter(x => x[0] !== id);
+    list.unshift([id, Date.now()]);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 40)));
+  } catch(e) {}
+}
+function usualSuspects(max){
+  const score = {}, cut = addDays(today(), -60), now = Date.now();
+  for (const [m, doc] of Object.entries(S.log)) {
+    if (m < cut.slice(0, 7)) continue;
+    for (const ev of doc.events || []) if (ev.t === 'use' && ev.a && ev.d >= cut) score[ev.a] = (score[ev.a] || 0) + 1 + (daysUntil(ev.d) >= -7 ? 1 : 0);
+  }
+  let recent = []; try { recent = JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch(e) {}
+  // Was du selbst gerade erst genommen hast, steht weit oben: bis 3 Tage alt deutlich, danach schwächer
+  for (const [id, t] of recent) { const d = (now - t) / 864e5; score[id] = (score[id] || 0) + (d < 3 ? 6 : d < 14 ? 2 : 0.5); }
+  return Object.entries(score).map(([id, sc]) => [S.articles[id], sc]).filter(([a]) => a && usable(a))
+    .sort((x, y) => y[1] - x[1] || x[0].name.localeCompare(y[0].name, 'de')).slice(0, max).map(([a]) => a);
+}
+const usable = a => isFlag(a) ? flagState(a) !== 'out' : total(a) > 0;
+function quickRow(a){
+  const btns = isFlag(a)
+    ? (a.low ? '' : '<button type="button" class="btn ghost" data-qflag="' + a.id + '" data-to="low">Knapp</button>') + '<button type="button" class="btn ghost" data-qflag="' + a.id + '" data-to="out">Aus</button>'
+    : (canOpen(a) ? '<button type="button" class="btn ghost" data-qopen="' + a.id + '">Öffnen</button>' : '') +
+      '<button type="button" class="qbtn' + (a.openable ? ' openable' : '') + '" data-quse="' + a.id + '" aria-label="' + esc(a.name) + ': ' + (a.mode === 'level' ? 'etwas' : 'eins') + ' verbraucht">−</button>';
+  return '<div class="lot qrow"><div class="l">' + esc(a.name) + '<small>' + esc(stockText(a)) + (a.loc ? ', ' + esc(a.loc) : '') + '</small></div>' + btns + '</div>';
+}
+function openQuickUse(){
+  const root = $('#sheetInner');
+  let q = '';
+  const shell = () => {
+    root.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">Verbraucht</h2><button class="xbtn" id="close" aria-label="Schließen">×</button></div>' +
+      '<div class="searchrow"><input class="search" id="qu-q" type="search" placeholder="Was hast du verbraucht?" autocomplete="off" enterkeyhint="search" aria-label="Artikel suchen"><button class="iconbtn" id="qu-scan" aria-label="Barcode scannen">' + SCAN_ICON + '</button></div>' +
+      '<div id="qu-list"></div>';
+    const qEl = root.querySelector('#qu-q');
+    qEl.value = q;
+    qEl.addEventListener('input', () => { q = qEl.value; list(); });
+    root.querySelector('#close').onclick = closeSheet;
+    root.querySelector('#qu-scan').onclick = () => { UI.scanMode = 'use'; openScanner(); };
+    list();
+    setTimeout(() => { if (UI.sheet === shell) qEl.focus(); }, 260);
+  };
+  const list = () => {
+    const box = root.querySelector('#qu-list'); if (!box) return;
+    const n = norm(q);
+    let html;
+    if (!n) {
+      const sus = usualSuspects(12);
+      html = sus.length ? '<h3 class="weekhead" style="margin-top:14px;border:0;padding:0">Zuletzt und oft</h3><div class="list" style="margin-top:6px">' + sus.map(quickRow).join('') + '</div>'
+        : '<p class="hint" style="margin-top:12px">Tipp den Namen ein. Was ihr oft verbraucht, steht mit der Zeit von selbst hier.</p>';
+    } else {
+      const hits = Object.values(S.articles).filter(a => norm(a.name).includes(n));
+      const ok = hits.filter(usable).sort((x, y) => norm(y.name).startsWith(n) - norm(x.name).startsWith(n) || x.name.localeCompare(y.name, 'de')).slice(0, 20);
+      const empty = hits.filter(a => !usable(a)).length;
+      html = ok.length ? '<div class="list" style="margin-top:12px">' + ok.map(quickRow).join('') + '</div>' : '<p class="hint" style="margin-top:12px">' + (empty ? 'Nichts davon ist gerade da.' : 'Nichts gefunden.') + '</p>';
+      if (ok.length && empty) html += '<p class="hint" style="margin-top:6px">' + empty + (empty === 1 ? ' weiterer Treffer ist' : ' weitere Treffer sind') + ' gerade leer.</p>';
+    }
+    box.innerHTML = html;
+    box.querySelectorAll('[data-quse]').forEach(b => b.onclick = () => consumeOne(b.dataset.quse));
+    box.querySelectorAll('[data-qopen]').forEach(b => b.onclick = () => openOne(b.dataset.qopen));
+    box.querySelectorAll('[data-qflag]').forEach(b => b.onclick = () => setFlag(b.dataset.qflag, b.dataset.to));
+  };
+  openSheet(shell);
+  // Neu zeichnen nur die Liste, damit die Suche ihren Fokus behält
+  shell.refresh = () => list();
+}
+
 /* ============ Snackbar ============ */
 let snackTimer;
 function toast(msg, undo){
@@ -2875,6 +3282,7 @@ function goTab(tab, dir){
       const j = COOK_VIEWS.indexOf(UI.cookView) + dir;
       if (j >= 0 && j < COOK_VIEWS.length) { UI.cookView = COOK_VIEWS[j]; window.scrollTo(0, 0); render(); slideIn(dir); return; }
     }
+    if (kid()) return;
     const i = TABS.indexOf(UI.tab) + dir;
     if (i < 0 || i >= TABS.length) return;
     // Von links kommend beim Wochenplan landen, von rechts kommend bei den Rezepten
@@ -2907,14 +3315,20 @@ document.addEventListener('contextmenu', e => { if (e.target.closest('[data-use]
 // Im Gericht: „Menge ungeprüft …“ öffnet den Artikel, dort steht „Für Rezepte“
 $('#sheetInner').addEventListener('click', e => { const b = e.target.closest('[data-fixart]'); if (b && S.articles[b.dataset.fixart]) openEdit(b.dataset.fixart); });
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-use],[data-refill],[data-open],[data-filter],[data-act],[data-toggle],[data-qty],[data-remove],[data-cookview],[data-meal],[data-addmeal],[data-recipe],[data-vote],[data-wish],[data-togglecat],[data-tagfilter],[data-rsort]');
+  const el = e.target.closest('[data-use],[data-refill],[data-open],[data-filter],[data-act],[data-toggle],[data-qty],[data-remove],[data-cookview],[data-meal],[data-addmeal],[data-recipe],[data-vote],[data-wish],[data-togglecat],[data-tagfilter],[data-rsort],[data-flag],[data-rsaved]');
   if (!el || el.closest('#sheet')) return;
   if (HOLD.fired && el.dataset.use === HOLD.fired && Date.now() - HOLD.at < 1500) { HOLD.fired = null; return; }   // war ein langes Drücken
   const d = el.dataset;
   // Leerer Wert ist hier gültig: „Ohne Kategorie“ bzw. „Alle“
+  if (kid() && (d.use || d.refill || d.open || d.act === 'scan' || d.act === 'quickuse' || d.act === 'newrecipe' || d.addmeal || d.flag || d.act === 'tags')) return;
   if ('togglecat' in d) { toggleCat(d.togglecat); return; }
   if ('tagfilter' in d) { toggleTagFilter(d.tagfilter); return; }
   if (d.rsort) { setRecipeSort(d.rsort); return; }
+  if (d.act === 'rfilter') { openRecipeFilter(); return; }
+  if (d.act === 'rclear') { clearFilter(); render(); return; }
+  if (d.rsaved) { const sf = mySaved().find(x => x.id === d.rsaved); if (sf) { if (sameFilter(curFilter(), sf)) clearFilter(); else applyFilter(sf); render(); } return; }
+  if (d.flag) { setFlag(d.flag, d.to); return; }
+  if (d.act === 'quickuse') { openQuickUse(); return; }
   if (d.act === 'tags') { openTagManager(); return; }
   if (d.use) consumeOne(d.use);
   else if (d.refill) { const a = clone(S.articles[d.refill]); addStock(a, a.buy || 1); putArticle(a); toast(a.name + ': ' + fmtNum(a.buy || 1) + ' dazu'); }
@@ -2949,9 +3363,19 @@ document.addEventListener('click', e => {
 });
 
 /* ============ Start ============ */
+// Kurzbefehle am App-Symbol (manifest „shortcuts“): ?do=use | scan-use | scan-add
+const LAUNCH = new URLSearchParams(location.search).get('do');
 localLoad();
 migrate();
 render();
+if (LAUNCH) {
+  const u = new URL(location.href); u.searchParams.delete('do'); history.replaceState(null, '', u.pathname + (u.search || ''));
+  setTimeout(() => {
+    if (kid()) return;
+    if (LAUNCH === 'use') openQuickUse();
+    else if (LAUNCH === 'scan-use' || LAUNCH === 'scan-add') { UI.tab = 'stock'; UI.scanMode = LAUNCH === 'scan-use' ? 'use' : 'add'; render(); openScanner(); }
+  }, 50);
+}
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 initRemote();
 </script>

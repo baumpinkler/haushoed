@@ -26,5 +26,46 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Verbraucht",
+      "short_name": "Verbraucht",
+      "description": "Verbraucht oder geöffnet eintragen",
+      "url": "./?do=use",
+      "icons": [
+        {
+          "src": "icons/shortcut-use.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Verbraucht scannen",
+      "short_name": "Verbraucht scannen",
+      "description": "Barcode scannen und 1 abziehen",
+      "url": "./?do=scan-use",
+      "icons": [
+        {
+          "src": "icons/shortcut-scan-use.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Einräumen scannen",
+      "short_name": "Einräumen",
+      "description": "Barcode scannen und einräumen",
+      "url": "./?do=scan-add",
+      "icons": [
+        {
+          "src": "icons/shortcut-scan-add.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }
