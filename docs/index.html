@@ -287,9 +287,18 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
 .ingline small .ok{color:var(--ok)}
 .ingline small .miss{color:var(--berry)}
 .ingline > span{flex:1 0 38%;min-width:0}
-.ingline > small{flex:0 1 auto}
+.ingline > small,.ingline > .ingright{flex:0 1 auto}
+.ingstat .ok{color:var(--ok)}
+.ingstat .miss{color:var(--berry)}
+.ingstat .chk{color:var(--mustard)}
 .meal.cooked .name{text-decoration:line-through;color:var(--muted)}
 .ingprev{margin-top:8px}
+.sheet-inner.sub{position:absolute;left:0;right:0;bottom:0;z-index:2;box-shadow:0 -10px 40px rgba(0,0,0,.25)}
+.sheet-inner.sub[hidden]{display:none}
+.ingright{display:flex;flex-direction:column;align-items:flex-end;min-width:0}
+.ingstat{border:0;background:none;padding:2px 0;margin:-2px 0;font:inherit;font-size:13px;color:var(--muted);text-align:right;cursor:pointer;border-radius:6px}
+.ingstat:hover .chev-r,.ingstat:focus-visible .chev-r{color:var(--ink)}
+.ingstat .chev-r{font-size:16px;line-height:1;color:var(--line);margin-left:2px}
 .linkbtn{display:block;margin-left:auto;margin-top:2px;padding:2px 0;border:0;background:none;font:inherit;color:var(--muted);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:right}
 .ingline{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-size:15px}
 .ingline:first-child{border-top:0}
@@ -351,7 +360,7 @@ summary{font-weight:600;cursor:pointer;padding:4px 0}
   <button class="tab" data-tab="more">Mehr</button>
 </div></nav>
 <div class="backdrop" id="backdrop"></div>
-<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Artikel"><div class="sheet-inner" id="sheetInner"></div></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Artikel"><div class="sheet-inner" id="sheetInner"></div><div class="sheet-inner sub" id="subInner" hidden role="dialog" aria-modal="true" aria-label="Zutat zuordnen"></div></div>
 <div class="login" id="login" hidden><div class="login-inner">
   <img id="loginLogo" alt="">
   <h1 class="wordmark">Haushöd</h1>
@@ -1515,12 +1524,13 @@ const HIST = {open: false, skip: 0};
 function openSheet(build){
   if (!HIST.open) { history.pushState({sheet: 1}, ''); HIST.open = true; }
   $('#sheetInner').innerHTML = '';
+  $('#subInner').hidden = true;
   UI.sheet = build;
   build.refresh = () => { if (UI.sheet === build) build(); };
   build();
   $('#backdrop').classList.add('open'); $('#sheet').classList.add('open');
 }
-function hideSheet(){ UI.sheet = null; $('#backdrop').classList.remove('open'); $('#sheet').classList.remove('open'); }
+function hideSheet(){ $('#subInner').hidden = true; UI.sheet = null; $('#backdrop').classList.remove('open'); $('#sheet').classList.remove('open'); }
 function closeSheet(){
   hideSheet();
   // Erst danach prüfen: Geht gleich ein anderes Blatt auf (z. B. Scanner → Neu anlegen → Scanner),
@@ -1814,7 +1824,7 @@ function openEdit(id){
    Erscheint nur, wenn es etwas bringt: ein Rezept braucht den Artikel in g, ml, EL oder TL,
    oder es gibt schon einen Wert bzw. einen Vorschlag. */
 function usedByAmount(a){
-  return Object.values(S.recipes).some(r => recipeIngredients(r).some(i => (i.kind === 'measure' || i.spoon) && (matchArticle(i.name) || {}).id === a.id));
+  return Object.values(S.recipes).some(r => recipeIngredients(r).some(i => (i.kind === 'measure' || i.spoon) && ingArticles(i.name).arts.some(x => x.id === a.id)));
 }
 function recipeField(a){
   const used = usedByAmount(a);
@@ -1919,6 +1929,48 @@ function parseIngredient(raw){
 const recipeIngredients = r => String(r.ingredients || '').split('\n').map(parseIngredient).filter(Boolean);
 const stem = s => norm(s).replace(/(en|er|e|n|s)$/, '');
 /* Zutat einem Vorratsartikel zuordnen: gleicher Name, Ein-/Mehrzahl, oder enthaltenes Wort */
+/* Zuordnung Zutat → Vorrat. S.meta.links = {Zutat (norm): [Artikel-IDs] | 'none'}. Ist eine Zutat zugeordnet,
+   zählen genau diese Artikel (in dieser Reihenfolge: zuerst wird vom ersten genommen, nachgekauft wird der erste);
+   'none' heißt „nicht im Vorrat führen“ (fehlt nie). Sonst sucht matchArticle nach dem Namen. Gesucht wird die
+   Zuordnung über den genauen Namen, sonst über den Wortstamm („Zwiebel“ findet „Zwiebeln“). */
+function linkKey(name){
+  const n = norm(name), L = S.meta.links || {};
+  if (L[n]) return n;
+  const sn = stem(n);
+  return Object.keys(L).find(k => stem(k) === sn) || n;
+}
+const linkOf = name => (S.meta.links || {})[linkKey(name)] || null;
+function ingArticles(name){
+  const l = linkOf(name);
+  if (l === 'none') return {arts: [], how: 'none'};
+  // Eine leere Liste heißt „bewusst nichts zugeordnet“ (die Zutat fehlt dann), nicht „automatisch“
+  if (Array.isArray(l)) return {arts: l.map(id => S.articles[id]).filter(Boolean), how: 'link'};
+  const a = matchArticle(name);
+  return {arts: a ? [a] : [], how: 'auto'};
+}
+function setLink(name, val){
+  const before = clone(S.meta.links || {}), k = linkKey(name);
+  S.meta.links = {...before};
+  if (val == null) delete S.meta.links[k]; else S.meta.links[k] = Array.isArray(val) ? [...new Set(val)] : val;
+  saveMeta();
+  return () => { S.meta.links = before; saveMeta(); };
+}
+/* Eine Zutat aus einer Gruppe von Artikeln erfüllen: der Reihe nach, jeweils in der Maßeinheit des Artikels.
+   take(a, need, want) nimmt bis zu want und sagt, wie viel es bekam; bei need.metric 'any' heißt 1 „ist da“.
+   Ergebnis: short = Anteil der Zutat, der fehlt (0 bis 1). */
+function fulfill(ing, arts, f, take){
+  let p = 1; const parts = [];
+  for (const a of arts) {
+    if (p <= 1e-9) break;
+    const need = ingNeed(ing, a, f);
+    if (need.metric === 'any' || !(need.v > 0)) { const got = take(a, need, 0); parts.push({a, need, got}); if (got) p = 0; continue; }
+    const want = need.v * p, got = Math.min(want, take(a, need, want));
+    parts.push({a, need, got, want});
+    p -= got / need.v;
+  }
+  return {short: Math.max(0, p), parts};
+}
+const ingSoft = ing => ing.kind === 'soft';
 function matchArticle(name){
   const n = norm(name); if (!n) return null;
   const arts = Object.values(S.articles);
@@ -2009,16 +2061,34 @@ function planCalc(){
   for (const e of entries) {
     const r = S.recipes[e.recipeId], f = factorOf(e, r), inH = e.date <= hEnd, missing = [], check = [], lines = [];
     for (const ing of recipeIngredients(r)) {
-      const a = matchArticle(ing.name);
-      if (!a) {
-        if (ing.kind !== 'soft') { missing.push(ing.name); if (inH) want('n:' + norm(ing.name), null, ing.name, r.name, 'cnt', ing.kind === 'measure' ? ing.amt * f : (ing.qty || 1) * f, ing); }
-        lines.push({ing, a: null});
+      const {arts, how} = ingArticles(ing.name);
+      if (!arts.length) {
+        if (how !== 'none' && !ingSoft(ing)) { missing.push(ing.name); if (inH) want('n:' + norm(ing.name), null, ing.name, r.name, 'cnt', ing.kind === 'measure' ? ing.amt * f : (ing.qty || 1) * f, ing); }
+        lines.push({ing, a: null, how});
         continue;
       }
-      const need = ingNeed(ing, a, f), res = simTake(lotsOf(a), need.metric, need.v, e.date);
-      if (res.short > 0) { missing.push(a.name); if (inH) want('a:' + a.id, a, a.name, r.name, need.metric, res.short); }
-      if (res.chk > 0) check.push(a.name);
-      lines.push({ing, a, need, res});
+      const a = arts[0];
+      if (arts.length === 1) {
+        const need = ingNeed(ing, a, f), res = simTake(lotsOf(a), need.metric, need.v, e.date);
+        if (res.short > 0) { missing.push(a.name); if (inH) want('a:' + a.id, a, a.name, r.name, need.metric, res.short); }
+        if (res.chk > 0) check.push(a.name);
+        lines.push({ing, a, arts, how, need, res});
+        continue;
+      }
+      // Mehrere Artikel: der Reihe nach nehmen; was fehlt, wird beim ersten nachgekauft
+      let chkFrom = null, chk = false, expired = 0;
+      const fu = fulfill(ing, arts, f, (x, need, w) => {
+        const res = simTake(lotsOf(x), need.metric, need.metric === 'any' ? 0 : w, e.date);
+        if (res.chkFrom && (!chkFrom || res.chkFrom < chkFrom)) chkFrom = res.chkFrom;
+        if (res.chk > 0) chk = true;
+        if (need.metric === 'any') return res.short ? 0 : 1;
+        return w - res.short;
+      });
+      const need = ingNeed(ing, a, f), v = need.metric === 'any' ? 1 : need.v;
+      const res = {ok: (1 - fu.short) * v, chk: chk && !fu.short ? (need.metric === 'any' ? 1 : 0) : 0, short: fu.short > 1e-9 ? (need.metric === 'any' ? 1 : fu.short * v) : 0, expired, chkFrom};
+      if (chk) check.push(ing.name);
+      if (res.short > 0) { missing.push(ing.name); if (inH) want('a:' + a.id, a, a.name, r.name, need.metric, res.short); }
+      lines.push({ing, a, arts, how, need, res});
     }
     status[e.id] = {missing: [...new Set(missing)], check: [...new Set(check)]};
     detail[e.id] = {inH, lines};
@@ -2037,19 +2107,25 @@ function buyQty(b){
 function recipeMissing(r, servings){
   const f = (servings || r.servings || 1) / (r.servings || 1), rem = {}, miss = [];
   for (const ing of recipeIngredients(r)) {
-    const a = matchArticle(ing.name);
-    if (!a) { if (ing.kind !== 'soft') miss.push(ing.name); continue; }
-    const need = ingNeed(ing, a, f), st = rem[a.id] || (rem[a.id] = {amt: amount(a), cnt: total(a)});
-    if (need.metric === 'any') { if (st.cnt <= 1e-9) miss.push(a.name); continue; }
-    if (st[need.metric] + 1e-9 >= need.v) st[need.metric] -= need.v; else { miss.push(a.name); st[need.metric] = 0; }
+    const {arts, how} = ingArticles(ing.name);
+    if (!arts.length) { if (how !== 'none' && !ingSoft(ing)) miss.push(ing.name); continue; }
+    const fu = fulfill(ing, arts, f, (a, need, w) => takeStock(rem, a, need, w));
+    if (fu.short > 1e-9) miss.push(arts.length === 1 ? arts[0].name : ing.name);
   }
   return [...new Set(miss)];
+}
+// Vom aktuellen Bestand nehmen (ohne Daten), rem merkt sich, was schon für andere Zutaten verplant ist
+function takeStock(rem, a, need, w){
+  const st = rem[a.id] || (rem[a.id] = {amt: amount(a), cnt: total(a)});
+  if (need.metric === 'any') return st.cnt > 1e-9 ? 1 : 0;
+  const g = Math.min(st[need.metric], w); st[need.metric] -= g; return g;
 }
 const missText = miss => miss.length ? 'fehlt: ' + miss.slice(0, 3).join(', ') + (miss.length > 3 ? ' +' + (miss.length - 3) : '') : 'alles da';
 
 /* Kochen: Zutaten aus dem Vorrat austragen */
 function deductAmount(a, v){
   let rest = v;
+  const t0 = amount(a);
   const lots = sortedLots(a).filter(l => l.size > 0).sort((x, y) => (x.qty < 0.99 ? 0 : 1) - (y.qty < 0.99 ? 0 : 1));
   for (const l of lots) {
     if (rest <= 1e-9) break;
@@ -2057,15 +2133,18 @@ function deductAmount(a, v){
     live.qty -= take / live.size; rest -= take;
   }
   a.lots = a.lots.filter(l => l.qty > 0.02);
+  return Math.min(v, t0);
 }
 function deductCount(a, n){
   let rest = n;
+  const t0 = total(a);
   for (const l of sortedLots(a)) {
     if (rest <= 1e-9) break;
     const live = a.lots.find(z => z.id === l.id), take = Math.min(live.qty, rest);
     live.qty -= take; rest -= take;
   }
   a.lots = a.lots.filter(l => l.qty > 0.02);
+  return Math.min(n, t0);
 }
 function stepLevel(a){
   const lots = sortedLots(a); const opened = lots.find(l => l.qty < 0.99) || lots[0]; if (!opened) return;
@@ -2077,13 +2156,17 @@ function cook(planId){
   const f = factorOf(e, r), work = {}, before = {};
   for (const ing of recipeIngredients(r)) {
     if (ing.kind === 'soft' && !ing.spoon) continue;
-    const a0 = matchArticle(ing.name); if (!a0 || total(a0) <= 0) continue;
-    if (!before[a0.id]) before[a0.id] = clone(S.articles[a0.id]);
-    const a = work[a0.id] || (work[a0.id] = clone(S.articles[a0.id]));
-    const need = ingNeed(ing, a0, f);
-    if (need.metric === 'amt') deductAmount(a, need.v);
-    else if (need.metric === 'cnt') deductCount(a, need.v);
-    else if (a.mode === 'level' && ing.kind === 'measure') stepLevel(a);
+    const arts = ingArticles(ing.name).arts.filter(a0 => total(work[a0.id] || a0) > 0);
+    if (!arts.length) continue;
+    // Der Reihe nach austragen; ein Artikel ohne messbare Menge deckt den Rest (Füllstand: eine Stufe weniger)
+    fulfill(ing, arts, f, (a0, need, w) => {
+      if (!before[a0.id]) before[a0.id] = clone(S.articles[a0.id]);
+      const a = work[a0.id] || (work[a0.id] = clone(S.articles[a0.id]));
+      if (need.metric === 'amt') return deductAmount(a, w);
+      if (need.metric === 'cnt') return deductCount(a, w);
+      if (a.mode === 'level' && ing.kind === 'measure') stepLevel(a);
+      return 1;
+    });
   }
   Object.values(work).forEach(putArticle);
   const eb = clone(e); putPlan({...clone(e), cooked: true});
@@ -2424,6 +2507,11 @@ function openRecipeFilter(){
 }
 
 /* Zutaten eines geplanten Gerichts mit dem Stand an seinem Tag */
+// Rechte Seite einer Zutatenzeile: für Erwachsene antippbar (zuordnen, anlegen), für Kinder nie sichtbar
+function ingStat(ing, inner, fix){
+  if (kid()) return '<small>' + inner + '</small>';
+  return '<div class="ingright"><button type="button" class="ingstat" data-ing="' + esc(ing.name) + '" aria-label="' + esc(ing.name) + ': im Vorrat zuordnen oder anlegen">' + inner + ' <span class="chev-r" aria-hidden="true">›</span></button>' + (fix || '') + '</div>';
+}
 const WHY_TEXT = {size: 'Menge ungeprüft, Packungsgröße fehlt', weight: 'Menge ungeprüft, Gewicht pro EL fehlt'};
 function mealPreview(planId){
   const {detail} = planCalc(), d = detail[planId]; if (!d) return null;
@@ -2433,9 +2521,10 @@ function mealPreview(planId){
   const onList = new Set(shopList().filter(x => !x.plan).map(x => x.articleId).filter(Boolean));
   const fmtV = (a, metric, v) => metric === 'amt' ? fmtAmount(v, a.base) : qtyUnit(Math.round(v * 100) / 100, unitOf(a));
   let nChk = 0, nBuy = 0;
-  const rows = d.lines.map(({ing, a, need, res}) => {
-    const line = (parts, who, fix) => '<div class="ingline"><span>' + esc(scaledText(ing, f)) + '</span><small>' + (who ? esc(who) : '') + parts.map(([t, c]) => '<span class="' + c + '">' + esc(t) + '</span>').join(', ') + (fix || '') + '</small></div>';
+  const rows = d.lines.map(({ing, a, arts, how, need, res}) => {
+    const line = (parts, who, fix) => '<div class="ingline"><span>' + esc(scaledText(ing, f)) + '</span>' + ingStat(ing, (who ? esc(who) : '') + parts.map(([t, c]) => '<span class="' + c + '">' + esc(t) + '</span>').join(', '), fix) + '</div>';
     if (!a) {
+      if (how === 'none') return line([['nicht im Vorrat geführt', '']]);
       if (ing.kind === 'soft') return line([['nicht im Vorrat erfasst', '']]);
       nBuy++;
       return line([['kaufen, nicht im Vorrat', 'miss']]);
@@ -2459,7 +2548,8 @@ function mealPreview(planId){
     if (res.short && onList.has(a.id)) parts.push(['steht auf der Liste', '']);
     if (res.chk > 1e-9) nChk++; if (res.short > 1e-9) nBuy++;
     const fix = need.why ? '<button type="button" class="linkbtn" data-fixart="' + esc(a.id) + '">' + esc(WHY_TEXT[need.why]) + '</button>' : '';
-    return line(parts, norm(a.name) === norm(ing.name) ? '' : a.name + ': ', fix);
+    const names = (arts || [a]).map(x => x.name);
+    return line(parts, names.length === 1 && norm(a.name) === norm(ing.name) ? '' : names.join(', ') + ': ', fix);
   }).join('');
   const sum = nBuy + nChk === 0 ? 'Für ' + dayLabel(e.date) + ' ist alles da.'
     : 'Für ' + dayLabel(e.date) + ': ' + [nChk ? nChk + ' prüfen' : '', nBuy ? nBuy + ' nachkaufen' : ''].filter(Boolean).join(', ') + '.' +
@@ -2471,18 +2561,16 @@ function ingPreview(r, f){
   if (!ings.length) return '';
   const rem = {};
   return '<div class="ingprev">' + ings.map(ing => {
-    const a = matchArticle(ing.name);
+    const {arts, how} = ingArticles(ing.name);
     let cls = '', note;
-    if (!a) { note = ing.kind === 'soft' ? 'nicht im Vorrat erfasst' : 'nicht im Vorrat'; cls = ing.kind === 'soft' ? '' : 'miss'; }
+    if (how === 'none') note = 'nicht im Vorrat geführt';
+    else if (!arts.length) { note = ingSoft(ing) ? 'nicht im Vorrat erfasst' : 'nicht im Vorrat'; cls = ingSoft(ing) ? '' : 'miss'; }
     else {
-      const need = ingNeed(ing, a, f), st = rem[a.id] || (rem[a.id] = {amt: amount(a), cnt: total(a)});
-      let ok;
-      if (need.metric === 'any') ok = st.cnt > 1e-9;
-      else { ok = st[need.metric] + 1e-9 >= need.v; st[need.metric] = Math.max(0, st[need.metric] - need.v); }
-      cls = ok ? 'ok' : 'miss';
-      note = a.name + ': ' + stockText(a);
+      const fu = fulfill(ing, arts, f, (a, need, w) => takeStock(rem, a, need, w));
+      cls = fu.short > 1e-9 ? 'miss' : 'ok';
+      note = arts.map(a => a.name + ': ' + stockText(a)).join(', ');
     }
-    return '<div class="ingline"><span>' + esc(scaledText(ing, f)) + '</span><small class="' + cls + '">' + esc(note) + '</small></div>';
+    return '<div class="ingline"><span>' + esc(scaledText(ing, f)) + '</span>' + ingStat(ing, '<span class="' + cls + '">' + esc(note) + '</span>') + '</div>';
   }).join('') + '</div>';
 }
 function openRecipe(id, opts){
@@ -3126,6 +3214,75 @@ function openScanner(opts = {}){
   shell.refresh = () => { if (alive() && st.panel && st.panel.kind === 'done') panel(); };
 }
 
+/* Zutat zuordnen: liegt als zweites Blatt über dem offenen (Rezept, Gericht, Wunsch), damit dort nichts
+   verloren geht. Hier wird festgelegt, welche Vorratsartikel für die Zutat zählen, ein fehlender Artikel
+   angelegt oder die Zutat aus dem Vorrat genommen („nicht im Vorrat führen“, etwa Wasser). Nicht für Kinder. */
+function openIngLink(name){
+  if (kid()) return;
+  const sub = $('#subInner');
+  const cap = t => t ? t[0].toUpperCase() + t.slice(1) : t;
+  let q = '', newName = cap(name.trim()), newCat = guess(name).cat || '';
+  const refreshHost = () => { const ta = document.getElementById('r-ing'); if (ta) ta.dispatchEvent(new Event('input')); };
+  const close = () => { sub.hidden = true; refreshHost(); const f = $('#sheetInner').querySelector('[data-ing]'); if (f) f.focus({preventScroll: true}); };
+  const change = (val, msg) => { const undo = setLink(name, val); refreshHost(); build(); toast(msg, () => { undo(); refreshHost(); if (!sub.hidden) build(); }); };
+  const ids = () => { const {arts, how} = ingArticles(name); return how === 'none' ? [] : arts.map(a => a.id); };
+  const hits = () => {
+    const box = sub.querySelector('#sub-hits'); if (!box) return;
+    const have = new Set(ids()), n = norm(q);
+    let list;
+    if (n) list = Object.values(S.articles).filter(a => !have.has(a.id) && norm(a.name).includes(n));
+    else {
+      // Ohne Suchbegriff: Artikel, die ein Wort mit der Zutat teilen
+      const ws = norm(name).split(' ').filter(w => w.length >= 3).map(stem);
+      list = Object.values(S.articles).filter(a => !have.has(a.id) && norm(a.name).split(' ').some(w => ws.some(x => stem(w).includes(x) || x.includes(stem(w)))));
+    }
+    list = list.sort((x, y) => (norm(y.name).startsWith(n) - norm(x.name).startsWith(n)) || x.name.localeCompare(y.name, 'de')).slice(0, 8);
+    box.innerHTML = list.length ? '<div class="list" style="margin-top:8px">' + list.map(a => '<button type="button" class="meal" data-ladd="' + a.id + '"><span class="dot' + (total(a) > 0 ? ' ok' : '') + '"></span><span class="minfo"><span class="name">' + esc(a.name) + '</span><span class="meta">' + esc(stockText(a) + (a.loc ? ', ' + a.loc : '')) + '</span></span></button>').join('') + '</div>'
+      : (n ? '<p class="hint" style="margin-top:8px">Nichts gefunden. Unten kannst du es neu anlegen.</p>' : '');
+    box.querySelectorAll('[data-ladd]').forEach(b => b.onclick = () => { const a = S.articles[b.dataset.ladd]; q = ''; change([...ids(), a.id], name + ': ' + a.name + ' zählt jetzt dazu'); });
+  };
+  const build = () => {
+    const {arts, how} = ingArticles(name);
+    const cats = [...S.meta.cats];
+    if (newCat && !cats.includes(newCat)) cats.push(newCat);
+    sub.innerHTML = '<div class="grip"></div><div class="sheet-head"><h2 class="pick-title">' + esc(cap(name)) + '</h2><button class="xbtn" id="sub-close" aria-label="Zurück zum Rezept">×</button></div>' +
+      (how === 'none' ? '<p class="hint" style="margin:0">Wird nicht im Vorrat geführt und fehlt deshalb nie.</p><div class="actions"><button type="button" class="btn ghost" id="sub-track">Doch im Vorrat führen</button></div>'
+      : '<p class="hint" style="margin:0">Was im Vorrat für diese Zutat zählt. Rezepte rechnen mit allem hier zusammen, beim Kochen wird der Reihe nach ausgetragen, nachgekauft wird das Erste.</p>' +
+        '<div class="field"><span class="lbl">Zählt dazu</span>' + (arts.length ? '<div class="list">' + arts.map((a, i) => '<div class="lot tagrow"><div class="l">' + esc(a.name) + '<small>' + esc(stockText(a) + (how === 'auto' ? ', automatisch erkannt' : i === 0 && arts.length > 1 ? ', wird nachgekauft' : '')) + '</small></div>' +
+            (how === 'auto' ? '<button type="button" class="btn ghost" data-lkeep="' + a.id + '">Passt</button>' : i > 0 ? '<button type="button" class="xbtn" data-lup="' + a.id + '" aria-label="' + esc(a.name) + ' nach vorne (wird dann nachgekauft)">' + UP + '</button>' : '') +
+            '<button type="button" class="xbtn" data-ldel="' + a.id + '" aria-label="' + esc(a.name) + (how === 'auto' ? ' passt nicht' : ' entfernen') + '">×</button></div>').join('') + '</div>'
+          : '<p class="hint" style="margin:0">Noch nichts. Such unten einen Artikel aus oder leg ihn neu an.</p>') + '</div>' +
+        '<div class="field"><label for="f-lq">Aus dem Vorrat dazunehmen</label><input type="search" id="f-lq" class="search" style="margin-top:0" placeholder="Artikel suchen" autocomplete="off" value="' + esc(q) + '"><div id="sub-hits"></div></div>' +
+        '<div class="field"><span class="lbl">Neu im Vorrat anlegen</span><div class="two"><input type="text" id="f-lnew" value="' + esc(newName) + '" autocomplete="off" aria-label="Name des neuen Artikels"><select id="f-lcat" aria-label="Kategorie"><option value="">ohne Kategorie</option>' + cats.map(c => '<option' + (c === newCat ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
+          '<div class="actions"><button type="button" class="btn" id="sub-create">Anlegen und zuordnen</button></div><div class="hint">Der Artikel ist danach leer. Fehlt er für ein geplantes Gericht, kommt er auf die Einkaufsliste. Feinheiten wie Packungsgröße stellst du später im Vorrat ein.</div></div>' +
+        '<div class="sheet-foot"><button type="button" class="btn quiet" id="sub-none">Nicht im Vorrat führen</button>' + (how === 'link' ? '<button type="button" class="btn quiet" id="sub-auto">Automatisch zuordnen</button>' : '<span></span>') + '</div>');
+    sub.querySelector('#sub-close').onclick = close;
+    const tr = sub.querySelector('#sub-track'); if (tr) tr.onclick = () => change(null, name + ' wird wieder im Vorrat geführt');
+    const nn = sub.querySelector('#sub-none'); if (nn) nn.onclick = () => change('none', name + ' wird nicht im Vorrat geführt');
+    const au = sub.querySelector('#sub-auto'); if (au) au.onclick = () => change(null, name + ': wieder automatisch');
+    sub.querySelectorAll('[data-lkeep]').forEach(b => b.onclick = () => change([b.dataset.lkeep], name + ': ' + S.articles[b.dataset.lkeep].name + ' fest zugeordnet'));
+    sub.querySelectorAll('[data-ldel]').forEach(b => b.onclick = () => { const a = S.articles[b.dataset.ldel]; change(ids().filter(x => x !== b.dataset.ldel), name + ': ' + (a ? a.name : 'Artikel') + ' zählt nicht mehr dazu'); });
+    sub.querySelectorAll('[data-lup]').forEach(b => b.onclick = () => { const l = ids(), i = l.indexOf(b.dataset.lup); if (i > 0) { [l[i - 1], l[i]] = [l[i], l[i - 1]]; change(l, S.articles[b.dataset.lup].name + ' wird jetzt nachgekauft'); } });
+    const qEl = sub.querySelector('#f-lq');
+    if (qEl) qEl.addEventListener('input', () => { q = qEl.value; hits(); });
+    const ln = sub.querySelector('#f-lnew'), lc = sub.querySelector('#f-lcat');
+    if (ln) ln.addEventListener('input', () => { newName = ln.value; });
+    if (lc) lc.addEventListener('change', () => { newCat = lc.value; });
+    const cr = sub.querySelector('#sub-create');
+    if (cr) cr.onclick = () => {
+      const nm = (ln.value || '').trim(); if (!nm) { ln.focus(); return; }
+      const ex = findByName(nm);
+      if (ex) { if (!ids().includes(ex.id)) change([...ids(), ex.id], ex.name + ' gibt es schon, zählt jetzt dazu'); else toast(ex.name + ' zählt schon dazu'); return; }
+      const a = newArticle(nm); a.cat = lc.value; putArticle(a);
+      change([...ids(), a.id], a.name + ' angelegt und zugeordnet');
+    };
+    hits();
+  };
+  build();
+  sub.hidden = false;
+  sub.scrollTop = 0;
+}
+
 /* ============ Schnell verbrauchen ============
    Ein Blatt mit sofort aktiver Suche; ohne Suchbegriff stehen oben die Artikel, die zuletzt und am häufigsten
    verbraucht wurden. Grundlage: der Verlauf des Haushalts (log, 60 Tage) und, für Füllstände und Öffnen, die
@@ -3313,7 +3470,10 @@ document.addEventListener('pointermove', e => { if (HOLD.el && Math.hypot(e.clie
 ['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, () => { if (HOLD.timer) holdCancel(); }));
 document.addEventListener('contextmenu', e => { if (e.target.closest('[data-use]')) e.preventDefault(); });
 // Im Gericht: „Menge ungeprüft …“ öffnet den Artikel, dort steht „Für Rezepte“
-$('#sheetInner').addEventListener('click', e => { const b = e.target.closest('[data-fixart]'); if (b && S.articles[b.dataset.fixart]) openEdit(b.dataset.fixart); });
+$('#sheetInner').addEventListener('click', e => {
+  const b = e.target.closest('[data-fixart]'); if (b && S.articles[b.dataset.fixart]) { openEdit(b.dataset.fixart); return; }
+  const g = e.target.closest('[data-ing]'); if (g) openIngLink(g.dataset.ing);
+});
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-use],[data-refill],[data-open],[data-filter],[data-act],[data-toggle],[data-qty],[data-remove],[data-cookview],[data-meal],[data-addmeal],[data-recipe],[data-vote],[data-wish],[data-togglecat],[data-tagfilter],[data-rsort],[data-flag],[data-rsaved]');
   if (!el || el.closest('#sheet')) return;

@@ -77,6 +77,10 @@ An Open Food Facts geht nur die Ziffernfolge des Barcodes, sonst nichts.
 
 Die Kamera braucht HTTPS (GitHub Pages hat das). Android mit Chrome nutzt den eingebauten Scanner, iPhone und andere Browser die Bibliothek in `docs/vendor/`. Das erste Scannen auf einem Gerät braucht einmal Internet, danach geht es auch offline. Auf dem iPhone fragt die installierte App bei jedem Start einmal nach der Kamera; das lässt sich von der App aus nicht ändern.
 
+## Zutaten und Vorrat verbinden
+
+Normalerweise erkennt die App selbst, welcher Vorratsartikel zu einer Zutat passt. Wo das nicht klappt, tippst du in einem Rezept oder geplanten Gericht auf den Stand rechts neben der Zutat. Dort legst du fest, was dafür zählt, auch mehrere Artikel („Nudeln“ = Spaghetti und Penne; gekocht wird der Reihe nach, nachgekauft der erste), legst Fehlendes direkt im Vorrat an oder sagst „nicht im Vorrat führen“ (etwa für Wasser). Das gilt für alle Rezepte mit dieser Zutat und für den ganzen Haushalt.
+
 ## Rezepte filtern
 
 Unter „Kochen → Rezepte → Filter“ wählst du pro Person einen Bereich der Sterne (etwa „Nina ab 5 ★“, „Alexander 2 ★“), Tags sowie Arbeits- und Kochzeit von–bis. „Filter speichern“ legt die Auswahl unter einem Namen ab; gespeicherte Filter erscheinen als Chips über der Liste und gelten auf allen deinen Geräten. Die anderen im Haushalt haben ihre eigenen.
